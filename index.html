@@ -18,7 +18,7 @@
     --navy:#1F2A5A; --navy2:#2E3B7A; --navyl:#EEF0F7;
     --ok:#15803D; --okbg:#E9F7EE; --okbd:#86EFAC;
     --kunyit:#E3A008; --late:#92400E; --latebg:#FFF4D6;
-    --izin:#6B7280; --izinbg:#F3F4F6;
+    --izin:#7C3AED; --izinbg:#F3E8FF; --izintx:#6D28D9; --grbg:#F3F4F6;
     --err:#DC2626; --errbg:#FEF2F2;
     --ink:#111827; --mut:#6B7280; --bd:#E5E7EB; --bg:#F5F5F7;
   }
@@ -65,9 +65,9 @@
   .stats span { font-size:12px; color:#4B5563; }
   .stats .h { background:var(--okbg); } .stats .h b { color:var(--ok); }
   .stats .t { background:var(--latebg); } .stats .t b { color:var(--late); }
-  .stats .i { background:var(--izinbg); }
-  .stats .b { background:var(--izinbg); } .stats .b b { color:var(--mut); }
-  .bar { height:6px; background:var(--izinbg); border-radius:3px; margin-top:10px; display:flex; overflow:hidden; }
+  .stats .i { background:var(--izinbg); } .stats .i b { color:var(--izintx); }
+  .stats .b { background:var(--grbg); } .stats .b b { color:var(--mut); }
+  .bar { height:6px; background:var(--grbg); border-radius:3px; margin-top:10px; display:flex; overflow:hidden; }
   .bar i { display:block; height:100%; transition:width .3s; }
   .stline { display:flex; justify-content:space-between; gap:8px; font-size:11px; color:var(--mut); margin-top:6px; min-height:15px; }
   .stline .err { color:var(--err); font-weight:600; }
@@ -119,6 +119,7 @@
   .ev .d.s { background:#fff; border:2px solid #A1A1AA; } .ev .d.s.bt { border-color:var(--kunyit); }
   .ev .n { font-size:15px; font-weight:600; }
   .ev .n small { font-size:12px; color:var(--mut); font-weight:500; }
+  .ev .n small.izin { color:var(--izintx); font-weight:600; }
   .ev .s { font-size:12px; color:var(--mut); margin-top:1px; }
   .ev.sys .n { color:var(--mut); font-size:13px; font-weight:500; }
   .ev.sys.bt .n { color:var(--late); font-weight:700; }
@@ -788,7 +789,7 @@ function renderTimeline() {
     var s = S.absen[j.id], inf = S.info[j.id];
     if (!(s === STATUS_H || s === STATUS_I) || !inf || !lolosFilter(j, q)) return;
     var mt = s === STATUS_H ? (S.telat[j.id] || 0) : 0;
-    var lbl = s === STATUS_I ? '<small> · izin</small>' : (mt ? ' <span class="tag telat">telat ' + mt + ' mnt</span>' : '');
+    var lbl = s === STATUS_I ? '<small class="izin"> · izin</small>' : (mt ? ' <span class="tag telat">telat ' + mt + ' mnt</span>' : '');
     var jk = S.jk === 'S' || q ? ' · ' + (j.jk === 'L' ? 'Pria' : 'Wanita') : '';
     var oleh = inf[1] ? (inf[2] === 'Manual' ? ' · dicatat ' : ' · ' + (METODE_TEKS[inf[2]] || 'dicatat') + ' oleh ') + esc(inf[1]) : '';
     ev.push({ jam: inf[0] || '', u: 2, html: '<div class="ev"><span class="d ' + (s === STATUS_I ? 'i' : (mt ? 't' : 'h')) + '"></span><div class="n">' + esc(j.nama) + lbl + '</div>' +
@@ -798,7 +799,11 @@ function renderTimeline() {
   if (!q && S.filter === 'semua') {
     if (S.sesi.buka) ev.push(sys(S.sesi.buka, S.sesi.oleh === 'Otomatis' ? 'Sesi dibuka otomatis' : 'Sesi dibuka' + (S.sesi.oleh ? ' oleh ' + esc(S.sesi.oleh) : ''), 0));
     var bt = (S.jadwal || {}).batasTepat;
-    if (bt && (!S.sesi.buka || bt >= S.sesi.buka)) ev.push(sys(bt, 'Batas tepat waktu', 1, 'bt'));
+    // Penanda batas hanya muncul jika batasnya sudah terlewati: ada yang tercatat setelah batas, atau sesi hari ini & jam sudah lewat batas
+    var lewatBatas = bt && ev.some(function (e) { return !e.sys && e.jam >= bt; }) ||
+                     (bt && S.sesi.status !== 'Ditutup' && S.sesi.tanggal === S.today && jamSekarang() >= bt) ||
+                     (bt && S.sesi.status === 'Ditutup' && S.sesi.tutup && S.sesi.tutup >= bt);
+    if (lewatBatas && (!S.sesi.buka || bt >= S.sesi.buka)) ev.push(sys(bt, 'Batas tepat waktu', 1, 'bt'));
     if (S.sesi.status === 'Ditutup' && S.sesi.tutup) ev.push(sys(S.sesi.tutup, 'Sesi ditutup', 3));
   }
   if (!ev.filter(function (e) { return !e.sys; }).length && (q || S.filter !== 'semua')) { box.innerHTML = '<div class="kosong">Tidak ada data.</div>'; return; }
@@ -806,7 +811,12 @@ function renderTimeline() {
   var out = '', grup = null;
   ev.forEach(function (e) {
     var g = e.jam ? e.jam.slice(0, 4) + '0' : '–';
-    if (g !== grup) { if (grup !== null) out += '</div>'; out += '<div class="tl-chip num">' + esc(g) + '</div><div class="tl">'; grup = g; }
+    if (g !== grup) {
+      if (grup !== null) out += '</div>';
+      // label jam (mis. 19:50 = kedatangan 19:50–19:59) hanya untuk kelompok yang berisi jamaah
+      var adaJamaah = ev.some(function (x) { return !x.sys && x.jam && x.jam.slice(0, 4) + '0' === g; });
+      out += (adaJamaah ? '<div class="tl-chip num">' + esc(g) + '</div>' : '') + '<div class="tl">'; grup = g;
+    }
     out += e.html;
   });
   if (grup !== null) out += '</div>';
