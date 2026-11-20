@@ -116,6 +116,10 @@
   .rekap summary { font-size:13px; color:var(--navy); margin-top:10px; cursor:pointer; font-weight:600; }
   .banner.okb { background:var(--okbg); border-color:var(--okbd); color:#14532D; align-items:center; }
   .banner.okb .btn { padding:8px 12px; font-size:13px; flex:none; }
+  .ket-row { display:flex; gap:6px; }
+  .ket-row input { flex:1; min-width:0; }
+  .ket-row button { flex:none; padding:9px 14px; }
+  .ket-row button:disabled { opacity:.45; }
   .kosong { padding:24px 0; text-align:center; color:var(--mut); font-size:13px; }
 
   .tl-chip { display:inline-block; font-size:12px; font-weight:700; color:var(--navy); background:var(--navyl); border-radius:6px; padding:2px 8px; margin:12px 0 2px 24px; }
@@ -235,10 +239,22 @@
   <!-- ABSENSI -->
   <section id="vAbsen" class="hide">
     <div class="card">
+      <div id="bukaBox" class="hide" style="margin-bottom:12px">
+        <label class="l" for="ketBaru">Keterangan / info pengajian hari ini (opsional)</label>
+        <input type="text" id="ketBaru" list="ketList" maxlength="100" placeholder="mis. Pengajian Lansia, ASAD, Remaja" autocomplete="off">
+        <button class="btn btn-w" id="btnBukaSesi" style="margin-top:8px"><span data-ic="plus"></span>Buka Sesi Hari Ini</button>
+      </div>
       <label class="l" for="selSesi" id="lblSesi">Sesi pengajian</label>
       <select id="selSesi"></select>
       <div id="sesiPetugas" class="sesi-lbl hide"></div>
-      <button class="btn btn-w hide" id="btnBukaSesi" style="margin-top:8px"><span data-ic="plus"></span>Buka Sesi Hari Ini</button>
+      <div id="ketBox" class="hide" style="margin-top:8px">
+        <label class="l" for="ketSesi">Keterangan / info pengajian sesi ini</label>
+        <div class="ket-row">
+          <input type="text" id="ketSesi" list="ketList" maxlength="100" placeholder="mis. Pengajian Lansia, ASAD, Remaja" autocomplete="off">
+          <button class="btn2" id="btnSimpanKet" disabled>Simpan</button>
+        </div>
+      </div>
+      <datalist id="ketList"></datalist>
       <div id="segJK" class="seg" style="margin-top:10px">
         <button data-jk="S">Semua<span class="num" id="segS"></span></button><button data-jk="L">Pria<span class="num" id="segL"></span></button><button data-jk="P">Wanita<span class="num" id="segP"></span></button>
       </div>
@@ -363,7 +379,7 @@
  *   window.ABSEN_CONFIG = { API_URL: 'https://script.google.com/macros/s/..../exec' };
  */
 var API_URL = (window.ABSEN_CONFIG && window.ABSEN_CONFIG.API_URL) || '';
-var VERSI_APP = 19;    // versi tampilan; server (Code.gs) minimal harus versi ini
+var VERSI_APP = 20;    // versi tampilan; server (Code.gs) minimal harus versi ini
 var SYNC_MS = 15000;   // sinkron antar-HP tiap 15 detik
 
 var STATUS_H = 'Hadir', STATUS_I = 'Izin';
@@ -574,6 +590,7 @@ function logout() {
 
 /* ---------- header ---------- */
 function renderHeader() {
+  renderKet();
   if (!S.petugas || S.petugas.admin) return;   // admin memakai pilihan sesi
   var s = S.sesi, st, cls;
   if (s && !S.siap) { st = 'memuat...'; cls = 'off'; }
@@ -601,12 +618,11 @@ function terapkanPaket(pk) {
       show($('sesiPetugas'), true);
     }
     var sel = $('selSesi');
-    sel.innerHTML = S.sesiList.map(function (s) {
-      return '<option value="' + esc(s.id) + '">' + esc(s.hari + ', ' + tglPendek(s.tanggal) + ' ' + s.tanggal.slice(0, 4) + ketSesi(s) + (s.status === 'Ditutup' ? ' · ditutup' : ' · terbuka')) + '</option>';
-    }).join('') || '<option value="">Belum ada sesi</option>';
+    renderPilihanSesi();
     show($('selSesi'), S.petugas.admin && S.sesiList.length > 0); show($('lblSesi'), S.petugas.admin && S.sesiList.length > 0);
     var adaHariIni = S.sesiList.some(function (s) { return s.tanggal === S.today; });
-    show($('btnBukaSesi'), !adaHariIni && S.petugas.admin);            // buka sesi: hanya Admin
+    show($('bukaBox'), !adaHariIni && S.petugas.admin);            // buka sesi: hanya Admin
+    if (!adaHariIni) $('ketBaru').value = '';
     show($('bannerBelumSesi'), !adaHariIni && !S.petugas.admin);
     var jd = r.jadwal || {};
     $('bannerBelumSesiT').innerHTML = '<b>Sesi hari ini belum dibuka.</b><br>' +
@@ -616,6 +632,37 @@ function terapkanPaket(pk) {
     if (pk.data) { sel.value = pk.data.sesi.id; terapkanDataSesi(pk.data); }
     else { S.sesi = null; S.jamaah = []; S.siap = false; renderHeader(); renderList(); renderTombolScan(); }
   })(pk.init);
+}
+function renderPilihanSesi() {
+  var sel = $('selSesi'), cur = sel.value;
+  sel.innerHTML = S.sesiList.map(function (s) {
+    return '<option value="' + esc(s.id) + '">' + esc(s.hari + ', ' + tglPendek(s.tanggal) + ' ' + s.tanggal.slice(0, 4) + ketSesi(s) + (s.status === 'Ditutup' ? ' · ditutup' : ' · terbuka')) + '</option>';
+  }).join('') || '<option value="">Belum ada sesi</option>';
+  if (cur) sel.value = cur;
+  // saran keterangan: yang pernah dipakai + contoh umum
+  var saran = ['Pengajian rutin', 'Pengajian Lansia', 'Pengajian Remaja', 'ASAD'];
+  S.sesiList.forEach(function (s) { if (s.ket && saran.indexOf(s.ket) < 0) saran.push(s.ket); });
+  $('ketList').innerHTML = saran.map(function (k) { return '<option value="' + esc(k) + '">'; }).join('');
+}
+/** Kolom keterangan sesi terpilih (Admin). */
+function renderKet() {
+  var on = !!(S.petugas && S.petugas.admin && S.sesi && S.siap);
+  show($('ketBox'), on);
+  if (!on) return;
+  if (document.activeElement !== $('ketSesi')) $('ketSesi').value = S.sesi.ket || '';
+  $('btnSimpanKet').disabled = ($('ketSesi').value.trim() || 'Pengajian rutin') === (S.sesi.ket || 'Pengajian rutin');
+}
+function simpanKet() {
+  if (!S.sesi) return;
+  var id = S.sesi.id, k = $('ketSesi').value;
+  $('btnSimpanKet').disabled = true;
+  denganProgres('Menyimpan keterangan...', function () { return call('ubahKeterangan', S.token, id, k); }).then(function (d) {
+    S.sesiList.forEach(function (x) { if (x.id === d.id) x.ket = d.ket; });
+    if (S.sesi && S.sesi.id === d.id) S.sesi.ket = d.ket;
+    $('ketSesi').value = d.ket; renderPilihanSesi(); renderKet(); renderHeader();
+    if (S.sesi && S.sesi.status === 'Ditutup') muatRekap();
+    toast('Keterangan disimpan: ' + d.ket);
+  }).catch(function (e) { toast(e.message, 'err', 4000); renderKet(); });
 }
 /* Petugas non-admin: cek setiap 15 detik apakah sesi hari ini sudah dibuka */
 var tungguTimer = null;
@@ -632,9 +679,10 @@ function tungguSesiHariIni(aktif) {
 }
 function bukaSesiHariIni() {
   $('btnBukaSesi').disabled = true;
-  denganProgres('Membuka sesi & memuat daftar jamaah...', function () { return call('bukaSesiHariIni', S.token); })
+  var ket = $('ketBaru').value;
+  denganProgres('Membuka sesi & memuat daftar jamaah...', function () { return call('bukaSesiHariIni', S.token, ket); })
     .then(function (s) {
-      toast('Sesi ' + s.hari + ', ' + s.tanggal + ' dibuka');
+      toast('Sesi ' + s.hari + ', ' + s.tanggal + (ketSesi(s) || '') + ' dibuka');
       if (s.paket) terapkanPaket(s.paket); else loadInit(s.id);
     })
     .catch(function (e) { toast(e.message, 'err', 4000); })
@@ -757,7 +805,13 @@ function setSyncInfo(ok, msg) {
 /** Terapkan data server; perubahan lokal yang belum tersimpan (pending) tidak ditimpa. */
 function terapkanServer(r) {
   if (!r || !S.sesi) return;
-  if (r.sesi && r.sesi.id === S.sesi.id) { S.sesi.buka = r.sesi.buka; S.sesi.oleh = r.sesi.oleh; S.sesi.tutup = r.sesi.tutup; }
+  if (r.sesi && r.sesi.id === S.sesi.id) {
+    S.sesi.buka = r.sesi.buka; S.sesi.oleh = r.sesi.oleh; S.sesi.tutup = r.sesi.tutup;
+    if ((r.sesi.ket || '') !== (S.sesi.ket || '')) {   // keterangan diubah Admin / di Sheet
+      S.sesi.ket = r.sesi.ket; S.sesiList.forEach(function (x) { if (x.id === r.sesi.id) x.ket = r.sesi.ket; });
+      renderPilihanSesi(); renderHeader();
+    }
+  }
   if (r.status && r.status !== S.sesi.status) { S.sesi.status = r.status; updateBannerTutup(); renderList(); }
   if (r.ver) S.ver = r.ver;
   if (r.sama || !r.absen) return;
@@ -1140,6 +1194,9 @@ $('btnLogin').onclick = function () { var p = $('pin').value.trim(); if (p) doLo
 $('pin').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('btnLogin').click(); });
 $('btnLogout').onclick = function (e) { e.preventDefault(); logout(); };
 $('btnBukaSesi').onclick = bukaSesiHariIni;
+$('ketSesi').addEventListener('input', renderKet);
+$('ketSesi').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !$('btnSimpanKet').disabled) simpanKet(); });
+$('btnSimpanKet').onclick = simpanKet;
 $('selSesi').onchange = function () {
   var id = this.value; stopLive();
   if (Object.keys(S.pending).length) { flush(); setTimeout(function () { loadSesi(id); }, 1200); } else loadSesi(id);
