@@ -56,6 +56,11 @@
   .it.h .bh { background:var(--g2); color:#fff; }
   .it.i .bi { background:#d69e2e; color:#fff; }
   .it button:disabled { opacity:.5; }
+  #cardScan button:disabled { background:#e5e7eb; color:#6b7280; border-color:#e5e7eb; cursor:not-allowed; }
+  .scan-status { margin-top:8px; padding:8px 10px; border-radius:8px; font-size:13px; font-weight:600; }
+  .scan-status.wait { background:#eef2ff; color:#3730a3; }
+  .scan-status.lock { background:var(--y); color:#7c5a00; }
+  .scan-status.ok { background:var(--gl); color:var(--g); }
   #reader { width:100%; margin-top:10px; border-radius:10px; overflow:hidden; position:relative; }
   #reader video { display:block; }   /* hilangkan celah hitam di bawah video */
   /* mode scan layar penuh */
@@ -141,6 +146,7 @@
     <div class="card">
       <label class="l" for="selSesi">Sesi pengajian</label>
       <select id="selSesi"></select>
+      <div id="sesiPetugas" class="hide" style="font-size:16px;font-weight:700;padding:6px 2px"></div>
       <button class="btn btn-w hide" id="btnBukaSesi" style="margin-top:8px">+ Buka Sesi Hari Ini</button>
       <div id="segJK" class="seg" style="margin-top:10px">
         <button data-jk="S">Semua <span id="segS"></span></button><button data-jk="L">Pria <span id="segL"></span></button><button data-jk="P">Wanita <span id="segP"></span></button>
@@ -148,6 +154,7 @@
     </div>
 
     <div id="bannerVersi" class="banner warn hide"></div>
+    <div id="bannerBelumSesi" class="banner info hide"></div>
     <div id="bannerTutup" class="banner warn hide"></div>
 
     <div class="card">
@@ -164,9 +171,10 @@
 
     <div class="card" id="cardScan">
       <div class="row2">
-        <button class="btn" id="btnScan">📷 Scan QR</button>
-        <button class="btn2" id="btnFoto">🖼️ Scan dari Foto</button>
+        <button class="btn" id="btnScan" disabled>⏳ Memeriksa sesi...</button>
+        <button class="btn2" id="btnFoto" disabled>🖼️ Scan dari Foto</button>
       </div>
+      <div id="scanStatus" class="scan-status wait">⏳ Sedang memeriksa sesi hari ini. Tombol scan aktif sebentar lagi.</div>
       <input type="file" id="fotoInput" accept="image/*" capture="environment" class="hide">
       <div id="readerFile" class="hide"></div>
       <div id="scanArea">
@@ -231,13 +239,13 @@
  *   window.ABSEN_CONFIG = { API_URL: 'https://script.google.com/macros/s/..../exec' };
  */
 var API_URL = (window.ABSEN_CONFIG && window.ABSEN_CONFIG.API_URL) || '';
-var VERSI_APP = 7;
+var VERSI_APP = 11;
 var SYNC_MS = 15000;   // sinkron antar-HP tiap 15 detik   // versi tampilan; server (Code.gs) minimal harus versi ini
 
 var STATUS_H = 'Hadir', STATUS_I = 'Izin';
-var S = { pin: null, petugas: null, kelompok: '', today: '', sesiList: [], sesi: null, jamaah: [], lain: [], absen: {},
+var S = { token: null, petugas: null, kelompok: '', today: '', sesiList: [], sesi: null, jamaah: [], lain: [], absen: {},
           pending: {}, saving: false, timer: null, jk: 'L', filter: 'semua', q: '', kartu: [],
-          ver: null, syncing: false, saveCount: 0, syncTimer: null };
+          ver: null, syncing: false, saveCount: 0, syncTimer: null, siap: false };
 
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -245,6 +253,12 @@ function show(el, on) { el.classList.toggle('hide', !on); }
 
 /* ---------- panggilan server (Apps Script atau fetch ke API_URL) ---------- */
 function call(fn) {
+  return callRaw.apply(null, arguments).catch(function (e) {
+    if (/^SESI_HABIS/.test(e.message) && fn !== 'login') { sesiHabis(e.message.replace(/^SESI_HABIS:\s*/, '')); }
+    throw e;
+  });
+}
+function callRaw(fn) {
   var args = Array.prototype.slice.call(arguments, 1);
   if (window.google && google.script && google.script.run) {
     return new Promise(function (res, rej) {
@@ -279,32 +293,53 @@ function beep(ok) {
 }
 
 /* ---------- login ---------- */
+/* PIN hanya dikirim sekali saat login. HP menyimpan TOKEN sesi (berlaku 6 jam), bukan PIN. */
 function doLogin(pin) {
   $('btnLogin').disabled = true; $('loginMsg').textContent = 'Memeriksa...';
   call('login', pin).then(function (r) {
-    S.pin = pin; S.petugas = r.petugas; S.kelompok = r.namaKelompok; S.versiServer = r.versiServer || 0;
-    simpanLogin(pin);
-    $('loginMsg').textContent = '';
+    if (!r.token) throw new Error('Server masih versi lama. Admin: Deploy → Kelola deployment → Edit → Versi baru.');
+    S.token = r.token; S.petugas = r.petugas; S.kelompok = r.namaKelompok; S.versiServer = r.versiServer || 0;
+    simpanLogin(r.token);
+    $('pin').value = ''; $('loginMsg').textContent = '';
     afterLogin();
   }).catch(function (e) {
     $('loginMsg').textContent = e.message;
-    hapusLogin();
     show($('vLoading'), false); show($('vLogin'), true);
   }).then(function () { $('btnLogin').disabled = false; });
 }
-var LOGIN_KEY = 'absen_bbk02_login', LOGIN_JAM = 12;   // login diingat 12 jam di HP ini
-function simpanLogin(pin) {
-  try { localStorage.setItem(LOGIN_KEY, JSON.stringify({ pin: pin, exp: Date.now() + LOGIN_JAM * 3600e3 })); } catch (e) {}
+/** Lanjutkan login dari token tersimpan (refresh / buka ulang browser). */
+function lanjutkanSesi(token) {
+  S.token = token;
+  callRaw('init', token).then(function (r) {
+    S.petugas = r.petugas; S.kelompok = r.namaKelompok; S.versiServer = r.versiServer || 0;
+    afterLogin(r);
+  }).catch(function (e) {
+    hapusLogin(); S.token = null;
+    show($('vLoading'), false); show($('vLogin'), true);
+    $('loginMsg').textContent = /^SESI_HABIS/.test(e.message) ? e.message.replace(/^SESI_HABIS:\s*/, '') : e.message;
+  });
+}
+function sesiHabis(msg) {
+  hapusLogin(); S.token = null; clearInterval(S.syncTimer); clearInterval(tungguTimer); stopLive();
+  show($('vAbsen'), false); show($('vKartu'), false); show($('vLoading'), false); show($('vLogin'), true);
+  show($('btnLogout'), false); $('hUser').textContent = '';
+  $('loginMsg').textContent = msg || 'Sesi login berakhir, silakan masukkan PIN lagi.';
+}
+var LOGIN_KEY = 'absen_bbk02_sesi', LOGIN_JAM = 6;   // sama dengan masa berlaku token di server
+function simpanLogin(token) {
+  try { localStorage.setItem(LOGIN_KEY, JSON.stringify({ token: token, exp: Date.now() + LOGIN_JAM * 3600e3 })); } catch (e) {}
 }
 function ambilLogin() {
   try {
     var o = JSON.parse(localStorage.getItem(LOGIN_KEY) || 'null');
-    if (o && o.pin && o.exp > Date.now()) return o.pin;
+    if (o && o.token && o.exp > Date.now()) return o.token;
   } catch (e) {}
   hapusLogin(); return null;
 }
-function hapusLogin() { try { localStorage.removeItem(LOGIN_KEY); sessionStorage.removeItem('absen_pin'); } catch (e) {} }
-function afterLogin() {
+function hapusLogin() {
+  try { localStorage.removeItem(LOGIN_KEY); localStorage.removeItem('absen_bbk02_login'); sessionStorage.removeItem('absen_pin'); } catch (e) {}
+}
+function afterLogin(initData) {
   $('hTitle').textContent = 'Absensi — ' + S.kelompok;
   $('hUser').textContent = S.petugas.nama + (S.petugas.bagian === 'Semua' ? '' : ' · ' + (S.petugas.bagian === 'L' ? 'Pria' : 'Wanita')) + (S.petugas.admin ? ' · Admin' : '');
   show($('btnLogout'), true);
@@ -324,40 +359,68 @@ function afterLogin() {
   show($('segJK'), S.petugas.bagian === 'Semua');
   $('statJudul').textContent = S.petugas.bagian === 'Semua' ? 'Total Pria + Wanita' : 'Total ' + (S.petugas.bagian === 'L' ? 'Pria' : 'Wanita') + ' (bagian Anda)';
   renderSeg();
-  loadInit();
+  loadInit(null, initData);
 }
 function logout() {
   if (Object.keys(S.pending).length && !window.confirm('Masih ada data yang belum tersimpan. Tetap keluar?')) return;
-  hapusLogin();
-  location.replace(location.pathname + location.search);
+  var t = S.token; hapusLogin();
+  var pindah = function () { location.replace(location.pathname + location.search); };
+  if (t) callRaw('logout', t).then(pindah, pindah); else pindah();
 }
 
 /* ---------- sesi ---------- */
-function loadInit(pilihId) {
-  call('init', S.pin).then(function (r) {
-    S.today = r.today; S.sesiList = r.sesi;
+function loadInit(pilihId, initData) {
+  (initData ? Promise.resolve(initData) : call('init', S.token)).then(function (r) {
+    S.today = r.today; S.sesiList = r.sesi; S.jadwal = r.jadwal || S.jadwal || null;
+    if (!S.petugas.admin) {   // petugas: hanya sesi hari ini, tidak bisa memilih sesi lain
+      S.sesiList = S.sesiList.filter(function (x) { return x.tanggal === S.today; });
+      show($('selSesi'), false); show($('sesiPetugas'), true);
+      var sh = S.sesiList[0];
+      $('sesiPetugas').textContent = sh ? '📅 ' + sh.hari + ', ' + sh.tanggal + (sh.status === 'Ditutup' ? ' (ditutup)' : ' · terbuka') : '📅 Hari ini: belum ada sesi';
+    }
     var sel = $('selSesi');
     sel.innerHTML = S.sesiList.map(function (s) {
       return '<option value="' + esc(s.id) + '">' + esc(s.hari + ', ' + s.tanggal + (s.status === 'Ditutup' ? ' (ditutup)' : '')) + '</option>';
     }).join('') || '<option value="">Belum ada sesi</option>';
     var adaHariIni = S.sesiList.some(function (s) { return s.tanggal === S.today; });
-    show($('btnBukaSesi'), !adaHariIni);
+    show($('btnBukaSesi'), !adaHariIni && S.petugas.admin);            // buka sesi: hanya Admin
+    show($('bannerBelumSesi'), !adaHariIni && !S.petugas.admin);
+    var jd = r.jadwal || {};
+    $('bannerBelumSesi').innerHTML = '⏳ <b>Sesi hari ini belum dibuka.</b><br>' +
+      (jd.jamBuka ? 'Sesi dibuka otomatis pukul <b>' + esc(jd.jamBuka) + '</b> pada hari ' + esc((jd.hari || []).map(function (h) { return h.charAt(0).toUpperCase() + h.slice(1); }).join(' & ')) + ', dan ditutup pukul ' + esc(jd.jamTutup) + '. ' : '') +
+      'Di luar jadwal, hubungi <b>Admin</b>. Halaman ini terbuka sendiri begitu sesi dibuka.';
+    tungguSesiHariIni(!adaHariIni && !S.petugas.admin);
     var target = pilihId || (S.sesiList.filter(function (s) { return s.tanggal === S.today; })[0] || S.sesiList.filter(function (s) { return s.status !== 'Ditutup'; })[0] || S.sesiList[0] || {}).id;
     if (target) { sel.value = target; loadSesi(target); }
-    else { S.sesi = null; S.jamaah = []; renderList(); show($('cardScan'), false); }
+    else { S.sesi = null; S.jamaah = []; S.siap = false; renderList(); renderTombolScan(); }
   }).catch(function (e) { toast(e.message, 'err', 4000); });
+}
+/* Petugas non-admin: cek setiap 15 detik apakah Admin sudah membuka sesi hari ini */
+var tungguTimer = null;
+function tungguSesiHariIni(aktif) {
+  clearInterval(tungguTimer); tungguTimer = null;
+  if (!aktif) return;
+  tungguTimer = setInterval(function () {
+    if (document.visibilityState === 'hidden' || !S.token) return;
+    call('init', S.token).then(function (r) {
+      var s = (r.sesi || []).filter(function (x) { return x.tanggal === r.today; })[0];
+      if (s) { clearInterval(tungguTimer); tungguTimer = null; toast('Sesi hari ini sudah dibuka Admin'); loadInit(s.id); }
+    }).catch(function () {});
+  }, SYNC_MS);
 }
 function bukaSesiHariIni() {
   $('btnBukaSesi').disabled = true;
-  call('bukaSesiHariIni', S.pin).then(function (s) { toast('Sesi ' + s.hari + ', ' + s.tanggal + ' dibuka'); loadInit(s.id); })
+  call('bukaSesiHariIni', S.token).then(function (s) { toast('Sesi ' + s.hari + ', ' + s.tanggal + ' dibuka'); loadInit(s.id); })
     .catch(function (e) { toast(e.message, 'err', 4000); })
     .then(function () { $('btnBukaSesi').disabled = false; });
 }
 function loadSesi(id) {
+  S.siap = false; stopLive(); renderTombolScan();   // tombol scan terkunci sampai sesi tervalidasi
   $('list').innerHTML = '<p class="muted center">Memuat daftar jamaah...</p>';
-  call('dataSesi', S.pin, id).then(function (r) {
+  call('dataSesi', S.token, id).then(function (r) {
     S.sesi = r.sesi; S.jamaah = r.jamaah; S.lain = r.lain || []; S.absen = r.absen; S.pending = {}; S.ver = r.ver || null;
     hist = []; renderHist(); show($('scanRes'), false);
+    S.siap = true;
     updateBannerTutup();
     renderList(); setSaveInfo(''); mulaiSinkron();
   }).catch(function (e) { toast(e.message, 'err', 4000); $('list').innerHTML = ''; });
@@ -366,7 +429,32 @@ function updateBannerTutup() {
   var tutup = S.sesi && S.sesi.status === 'Ditutup';
   show($('bannerTutup'), !!tutup);
   $('bannerTutup').textContent = tutup ? (S.petugas.admin ? 'Sesi ini sudah ditutup. Anda admin: perubahan tetap bisa disimpan sebagai koreksi.' : 'Sesi ini sudah ditutup. Data hanya bisa dilihat.') : '';
-  show($('cardScan'), !!S.sesi && !tutup);
+  renderTombolScan();
+  if (tutup && !S.petugas.admin) stopLive();   // sesi ditutup saat sedang scan -> kamera ditutup
+}
+
+/* ---------- status tombol scan: selalu terlihat, terkunci sampai sesi siap ---------- */
+function renderTombolScan() {
+  var st, label, info, aktif = false;
+  var jd = S.jadwal || {};
+  if (S.sesi && !S.siap) {
+    st = 'wait'; label = '⏳ Memeriksa sesi...';
+    info = '⏳ Sedang memeriksa sesi hari ini. Tombol scan aktif sebentar lagi.';
+  } else if (!S.sesi) {
+    st = 'lock'; label = '🔒 Scan belum dibuka';
+    info = '🔒 Sesi hari ini belum dibuka' + (jd.jamBuka ? ' — dibuka otomatis pukul ' + jd.jamBuka + '.' : '.') +
+           ' Tombol scan aktif sendiri begitu sesi dibuka.';
+  } else if (S.sesi.status === 'Ditutup' && !S.petugas.admin) {
+    st = 'lock'; label = '🔒 Sesi sudah ditutup';
+    info = '🔒 Sesi sudah ditutup' + (jd.jamTutup ? ' (pukul ' + jd.jamTutup + ')' : '') + '. Scan tidak bisa dicatat lagi.';
+  } else {
+    aktif = true; st = 'ok';
+    label = S.sesi.status === 'Ditutup' ? '📷 Scan QR (koreksi)' : '📷 Scan QR';
+    info = S.sesi.status === 'Ditutup' ? '✏️ Mode koreksi Admin: perubahan dicatat di Log.' : '✅ Sesi terbuka — silakan mulai scan.';
+  }
+  if (!qrLive) $('btnScan').textContent = label;
+  $('btnScan').disabled = !aktif; $('btnFoto').disabled = !aktif;
+  var el = $('scanStatus'); el.className = 'scan-status ' + st; el.textContent = info;
 }
 
 /* ---------- sinkron antar-HP ---------- */
@@ -401,7 +489,7 @@ function sinkron() {
   if (!S.sesi || S.syncing || S.saving || document.visibilityState === 'hidden') return;
   S.syncing = true;
   var sesiId = S.sesi.id, c0 = S.saveCount;
-  call('sinkron', S.pin, sesiId, S.ver).then(function (r) {
+  call('sinkron', S.token, sesiId, S.ver).then(function (r) {
     if (!S.sesi || S.sesi.id !== sesiId) return;
     if (S.saveCount !== c0) { S.ver = null; return; }   // ada penyimpanan di tengah jalan: ambil ulang berikutnya
     terapkanServer(r); setSyncInfo(true);
@@ -410,7 +498,7 @@ function sinkron() {
 }
 document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') sinkron(); });
 
-function bolehUbah() { return S.sesi && (S.sesi.status !== 'Ditutup' || S.petugas.admin); }
+function bolehUbah() { return S.siap && S.sesi && (S.sesi.status !== 'Ditutup' || S.petugas.admin); }
 
 /* ---------- daftar ---------- */
 function renderSeg() {
@@ -476,13 +564,20 @@ function flush() {
   if (S.saving || !batch.length || !S.sesi) return;
   S.saving = true; setSaveInfo('Menyimpan ' + batch.length + ' data...');
   var sesiId = S.sesi.id;
-  call('simpan', S.pin, sesiId, batch).then(function (r) {
+  call('simpan', S.token, sesiId, batch).then(function (r) {
     batch.forEach(function (b) { var p = S.pending[b.id]; if (p && p.status === b.status) delete S.pending[b.id]; });
     S.saveCount++;
     if (r.absen) terapkanServer({ ver: r.ver, absen: r.absen });   // sekalian sinkron hasil HP lain
     if (r.ditolak && r.ditolak.length) toast('Ditolak (di luar bagian Anda / tidak wajib / ID tidak dikenal): ' + r.ditolak.join(', '), 'warn', 4000);
     setSaveInfo('Tersimpan ✓ ' + new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
   }).catch(function (e) {
+    if (/^SESI_DITUTUP/.test(e.message)) {
+      S.pending = {}; S.sesi.status = 'Ditutup'; updateBannerTutup(); stopLive();
+      setSaveInfo(e.message.replace(/^SESI_DITUTUP:\s*/, ''), true);
+      call('dataSesi', S.token, S.sesi.id).then(function (r) { S.absen = r.absen; renderList(); }).catch(function () {});
+      return;
+    }
+    if (/^SESI_HABIS/.test(e.message)) return;
     setSaveInfo('Gagal menyimpan (' + e.message + '). Mencoba lagi...', true);
     setTimeout(flush, 4000);
   }).then(function () {
@@ -518,7 +613,9 @@ function handleScanId(raw, metode) {
   metode = metode || 'Scan QR';
   var id = String(raw || '').trim().toUpperCase();
   if (!id) return;
-  if (!S.sesi) { beep(false); showResult('err', 'Belum ada sesi hari ini', id, 'QR terbaca. Tekan "+ Buka Sesi Hari Ini" di atas, lalu scan lagi.'); return; }
+  if (!S.sesi) { beep(false); showResult('err', 'Belum ada sesi hari ini', id, 'QR terbaca, tetapi sesi belum dibuka. Tunggu jadwal buka atau hubungi Admin.'); return; }
+  if (!S.siap) { beep(false); showResult('err', 'Data sesi masih dimuat', id, 'Tunggu sebentar lalu scan lagi.'); return; }
+  if (S.sesi.status === 'Ditutup' && !S.petugas.admin) { beep(false); showResult('err', 'Sesi sudah ditutup', id, 'Scan tidak dicatat. Hubungi Admin untuk koreksi.'); return; }
   if (!S.jamaah.length && !S.lain.length) { beep(false); showResult('err', 'Daftar jamaah belum termuat', id, 'Periksa koneksi, lalu muat ulang halaman.'); return; }
   var j = cariId(S.jamaah, id);
   if (!j) {
@@ -556,7 +653,8 @@ function bukaLayarScan(on) {
 function startLive() {
   if (qrLive) return stopLive();
   if (!libScanner()) { toast('Scanner belum termuat. Gunakan pencarian nama.', 'warn', 3500); return; }
-  if (!S.sesi) { toast('Belum ada sesi. Tekan "+ Buka Sesi Hari Ini" dulu.', 'warn', 3500); return; }
+  if (!S.sesi || !S.siap) { toast('Sesi belum siap. Tunggu sesi terbuka / data selesai dimuat.', 'warn', 3500); return; }
+  if (S.sesi.status === 'Ditutup' && !S.petugas.admin) { toast('Sesi sudah ditutup.', 'warn', 3500); return; }
   bukaLayarScan(true);
   if (!scanLewatHistory) { history.pushState({ v: 'scan' }, '', '#scan'); scanLewatHistory = true; }
   show($('reader'), true);
@@ -589,7 +687,8 @@ function startLive() {
 function stopLive() {
   if (scanLewatHistory) { scanLewatHistory = false; history.back(); return; }   // popstate akan memanggil stopLive lagi
   var q = qrLive; qrLive = null;
-  $('btnScan').textContent = '📷 Scan QR'; show($('reader'), false);
+  show($('reader'), false);
+  if (typeof renderTombolScan === 'function' && S.petugas) renderTombolScan();
   bukaLayarScan(false);
   if (q) q.stop().then(function () { q.clear(); }).catch(function () {});
 }
@@ -613,7 +712,7 @@ function tutupSesi() {
   }
   tutupArmed = false; $('btnTutup').textContent = 'Menutup...'; $('btnTutup').disabled = true;
   var go = function () {
-    call('tutupSesi', S.pin, S.sesi.id).then(function (r) {
+    call('tutupSesi', S.token, S.sesi.id).then(function (r) {
       toast('Sesi ditutup. Alpa: ' + r.alpa + ', dikecualikan: ' + r.dikecualikan, 'ok', 3500);
       loadInit(S.sesi.id);
     }).catch(function (e) { toast(e.message, 'err', 4000); })
@@ -624,7 +723,7 @@ function tutupSesi() {
 function bukaKartu() {
   if (typeof qrcode === 'undefined') { toast('Library QR belum termuat. Periksa koneksi lalu muat ulang.', 'err', 4000); return; }
   stopLive();
-  call('kartu', S.pin).then(function (r) {
+  call('kartu', S.token).then(function (r) {
     S.kartu = r.jamaah; S.kelompokKartu = r.namaKelompok;
     show($('vAbsen'), false); show($('vKartu'), true); renderKartu();
     history.pushState({ v: 'kartu' }, '', '#kartu'); window.scrollTo(0, 0);
@@ -697,7 +796,7 @@ window.addEventListener('popstate', function () {
 (function start() {
   if (location.hash) history.replaceState({ v: 'absen' }, '', location.pathname + location.search);
   var saved = ambilLogin();
-  if (saved) { show($('vLogin'), false); show($('vLoading'), true); doLogin(saved); }
+  if (saved) { show($('vLogin'), false); show($('vLoading'), true); lanjutkanSesi(saved); }
 })();
 </script>
 </body>
