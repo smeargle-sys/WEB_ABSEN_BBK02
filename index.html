@@ -83,6 +83,19 @@
   .muted { color:var(--mut); font-size:13px; }
   .hide { display:none !important; }
   .center { text-align:center; }
+  /* overlay progres */
+  .ov { position:fixed; inset:0; z-index:60; background:rgba(246,247,246,.82); -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px);
+        display:flex; align-items:center; justify-content:center; padding:24px; }
+  .ov-box { background:#fff; border:1px solid var(--bd); border-radius:16px; padding:22px 20px; width:100%; max-width:320px;
+            text-align:center; box-shadow:0 10px 30px rgba(0,0,0,.12); }
+  .ov-spin { width:40px; height:40px; margin:0 auto 12px; border-radius:50%; border:4px solid var(--gl); border-top-color:var(--g2);
+             animation:ovputar .8s linear infinite; }
+  .ov-t { font-weight:700; font-size:16px; }
+  .ov-bar { height:6px; background:var(--gl); border-radius:99px; overflow:hidden; margin:14px 0 8px; position:relative; }
+  .ov-bar div { position:absolute; top:0; bottom:0; width:40%; background:var(--g2); border-radius:99px; animation:ovgeser 1.2s ease-in-out infinite; }
+  .ov-s { font-size:12px; color:var(--mut); }
+  @keyframes ovputar { to { transform:rotate(360deg); } }
+  @keyframes ovgeser { 0% { left:-40%; } 100% { left:100%; } }
   /* panel hasil scan */
   .sr { display:flex; gap:12px; align-items:center; margin-top:10px; padding:12px; border-radius:12px; border:2px solid; }
   .sr.ok { background:#e8f5e9; border-color:var(--g2); } .sr.dup { background:#e3f2fd; border-color:#1e88e5; }
@@ -232,6 +245,16 @@
 
 <div id="toast"></div>
 
+<!-- Overlay progres: tampil selama menunggu server -->
+<div id="ov" class="ov hide" role="status" aria-live="polite">
+  <div class="ov-box">
+    <div class="ov-spin"></div>
+    <div class="ov-t" id="ovTeks">Memuat...</div>
+    <div class="ov-bar"><div></div></div>
+    <div class="ov-s" id="ovSub">Mohon tunggu, jangan tutup halaman.</div>
+  </div>
+</div>
+
 <script>
 /* ===================== KONFIGURASI =====================
  * File ini SAMA untuk Apps Script (nama "Index") dan GitHub Pages (nama "index.html").
@@ -239,7 +262,7 @@
  *   window.ABSEN_CONFIG = { API_URL: 'https://script.google.com/macros/s/..../exec' };
  */
 var API_URL = (window.ABSEN_CONFIG && window.ABSEN_CONFIG.API_URL) || '';
-var VERSI_APP = 11;
+var VERSI_APP = 13;
 var SYNC_MS = 15000;   // sinkron antar-HP tiap 15 detik   // versi tampilan; server (Code.gs) minimal harus versi ini
 
 var STATUS_H = 'Hadir', STATUS_I = 'Izin';
@@ -292,16 +315,35 @@ function beep(ok) {
   try { if (navigator.vibrate) navigator.vibrate(ok ? 60 : [80, 60, 80]); } catch (e) {}
 }
 
+/* ---------- overlay progres ---------- */
+var ovT = null, ovMulai = 0;
+function progres(teks) {
+  clearInterval(ovT);
+  if (!teks) { show($('ov'), false); return; }
+  $('ovTeks').textContent = teks;
+  $('ovSub').textContent = 'Mohon tunggu, jangan tutup halaman.';
+  show($('ov'), true); ovMulai = Date.now();
+  ovT = setInterval(function () {
+    var d = Math.round((Date.now() - ovMulai) / 1000);
+    $('ovSub').textContent = d >= 8 ? 'Koneksi agak lambat (' + d + ' dtk), mohon tunggu...' : 'Mohon tunggu, jangan tutup halaman. (' + d + ' dtk)';
+  }, 1000);
+}
+/** Jalankan panggilan server dengan overlay; overlay selalu ditutup di akhir. */
+function denganProgres(teks, promiseFn) {
+  progres(teks);
+  return promiseFn().then(function (r) { progres(false); return r; }, function (e) { progres(false); throw e; });
+}
+
 /* ---------- login ---------- */
 /* PIN hanya dikirim sekali saat login. HP menyimpan TOKEN sesi (berlaku 6 jam), bukan PIN. */
 function doLogin(pin) {
-  $('btnLogin').disabled = true; $('loginMsg').textContent = 'Memeriksa...';
-  call('login', pin).then(function (r) {
-    if (!r.token) throw new Error('Server masih versi lama. Admin: Deploy → Kelola deployment → Edit → Versi baru.');
+  $('btnLogin').disabled = true; $('loginMsg').textContent = '';
+  denganProgres('Memeriksa PIN & menyiapkan sesi...', function () { return call('login', pin); }).then(function (r) {
+    if (!r.token || !r.paket) throw new Error('Server masih versi lama. Admin: Deploy → Kelola deployment → Edit → Versi baru.');
     S.token = r.token; S.petugas = r.petugas; S.kelompok = r.namaKelompok; S.versiServer = r.versiServer || 0;
     simpanLogin(r.token);
     $('pin').value = ''; $('loginMsg').textContent = '';
-    afterLogin();
+    afterLogin(r.paket);
   }).catch(function (e) {
     $('loginMsg').textContent = e.message;
     show($('vLoading'), false); show($('vLogin'), true);
@@ -310,10 +352,13 @@ function doLogin(pin) {
 /** Lanjutkan login dari token tersimpan (refresh / buka ulang browser). */
 function lanjutkanSesi(token) {
   S.token = token;
-  callRaw('init', token).then(function (r) {
+  callRaw('mulai', token).then(function (pk) {
+    progres(false);
+    var r = pk.init;
     S.petugas = r.petugas; S.kelompok = r.namaKelompok; S.versiServer = r.versiServer || 0;
-    afterLogin(r);
+    afterLogin(pk);
   }).catch(function (e) {
+    progres(false);
     hapusLogin(); S.token = null;
     show($('vLoading'), false); show($('vLogin'), true);
     $('loginMsg').textContent = /^SESI_HABIS/.test(e.message) ? e.message.replace(/^SESI_HABIS:\s*/, '') : e.message;
@@ -339,7 +384,7 @@ function ambilLogin() {
 function hapusLogin() {
   try { localStorage.removeItem(LOGIN_KEY); localStorage.removeItem('absen_bbk02_login'); sessionStorage.removeItem('absen_pin'); } catch (e) {}
 }
-function afterLogin(initData) {
+function afterLogin(paket) {
   $('hTitle').textContent = 'Absensi — ' + S.kelompok;
   $('hUser').textContent = S.petugas.nama + (S.petugas.bagian === 'Semua' ? '' : ' · ' + (S.petugas.bagian === 'L' ? 'Pria' : 'Wanita')) + (S.petugas.admin ? ' · Admin' : '');
   show($('btnLogout'), true);
@@ -359,7 +404,7 @@ function afterLogin(initData) {
   show($('segJK'), S.petugas.bagian === 'Semua');
   $('statJudul').textContent = S.petugas.bagian === 'Semua' ? 'Total Pria + Wanita' : 'Total ' + (S.petugas.bagian === 'L' ? 'Pria' : 'Wanita') + ' (bagian Anda)';
   renderSeg();
-  loadInit(null, initData);
+  terapkanPaket(paket);
 }
 function logout() {
   if (Object.keys(S.pending).length && !window.confirm('Masih ada data yang belum tersimpan. Tetap keluar?')) return;
@@ -369,8 +414,15 @@ function logout() {
 }
 
 /* ---------- sesi ---------- */
-function loadInit(pilihId, initData) {
-  (initData ? Promise.resolve(initData) : call('init', S.token)).then(function (r) {
+/** Ambil paket (daftar sesi + data sesi) dari server dalam 1 panggilan, dengan overlay. */
+function loadInit(pilihId, teks) {
+  return denganProgres(teks || 'Memuat sesi...', function () { return call('mulai', S.token, pilihId || null); })
+    .then(terapkanPaket).catch(function (e) { toast(e.message, 'err', 4000); });
+}
+/** Terapkan paket ke layar (tanpa memanggil server lagi). */
+function terapkanPaket(pk) {
+  if (!pk || !pk.init) return;
+  (function (r) {
     S.today = r.today; S.sesiList = r.sesi; S.jadwal = r.jadwal || S.jadwal || null;
     if (!S.petugas.admin) {   // petugas: hanya sesi hari ini, tidak bisa memilih sesi lain
       S.sesiList = S.sesiList.filter(function (x) { return x.tanggal === S.today; });
@@ -390,10 +442,9 @@ function loadInit(pilihId, initData) {
       (jd.jamBuka ? 'Sesi dibuka otomatis pukul <b>' + esc(jd.jamBuka) + '</b> pada hari ' + esc((jd.hari || []).map(function (h) { return h.charAt(0).toUpperCase() + h.slice(1); }).join(' & ')) + ', dan ditutup pukul ' + esc(jd.jamTutup) + '. ' : '') +
       'Di luar jadwal, hubungi <b>Admin</b>. Halaman ini terbuka sendiri begitu sesi dibuka.';
     tungguSesiHariIni(!adaHariIni && !S.petugas.admin);
-    var target = pilihId || (S.sesiList.filter(function (s) { return s.tanggal === S.today; })[0] || S.sesiList.filter(function (s) { return s.status !== 'Ditutup'; })[0] || S.sesiList[0] || {}).id;
-    if (target) { sel.value = target; loadSesi(target); }
+    if (pk.data) { sel.value = pk.data.sesi.id; terapkanDataSesi(pk.data); }
     else { S.sesi = null; S.jamaah = []; S.siap = false; renderList(); renderTombolScan(); }
-  }).catch(function (e) { toast(e.message, 'err', 4000); });
+  })(pk.init);
 }
 /* Petugas non-admin: cek setiap 15 detik apakah Admin sudah membuka sesi hari ini */
 var tungguTimer = null;
@@ -404,26 +455,33 @@ function tungguSesiHariIni(aktif) {
     if (document.visibilityState === 'hidden' || !S.token) return;
     call('init', S.token).then(function (r) {
       var s = (r.sesi || []).filter(function (x) { return x.tanggal === r.today; })[0];
-      if (s) { clearInterval(tungguTimer); tungguTimer = null; toast('Sesi hari ini sudah dibuka Admin'); loadInit(s.id); }
+      if (s) { clearInterval(tungguTimer); tungguTimer = null; toast('Sesi hari ini sudah dibuka'); loadInit(s.id, 'Sesi sudah dibuka — memuat daftar jamaah...'); }
     }).catch(function () {});
   }, SYNC_MS);
 }
 function bukaSesiHariIni() {
   $('btnBukaSesi').disabled = true;
-  call('bukaSesiHariIni', S.token).then(function (s) { toast('Sesi ' + s.hari + ', ' + s.tanggal + ' dibuka'); loadInit(s.id); })
+  denganProgres('Membuka sesi & memuat daftar jamaah...', function () { return call('bukaSesiHariIni', S.token); })
+    .then(function (s) {
+      toast('Sesi ' + s.hari + ', ' + s.tanggal + ' dibuka');
+      if (s.paket) terapkanPaket(s.paket); else loadInit(s.id);
+    })
     .catch(function (e) { toast(e.message, 'err', 4000); })
     .then(function () { $('btnBukaSesi').disabled = false; });
 }
 function loadSesi(id) {
   S.siap = false; stopLive(); renderTombolScan();   // tombol scan terkunci sampai sesi tervalidasi
   $('list').innerHTML = '<p class="muted center">Memuat daftar jamaah...</p>';
-  call('dataSesi', S.token, id).then(function (r) {
-    S.sesi = r.sesi; S.jamaah = r.jamaah; S.lain = r.lain || []; S.absen = r.absen; S.pending = {}; S.ver = r.ver || null;
-    hist = []; renderHist(); show($('scanRes'), false);
-    S.siap = true;
-    updateBannerTutup();
-    renderList(); setSaveInfo(''); mulaiSinkron();
-  }).catch(function (e) { toast(e.message, 'err', 4000); $('list').innerHTML = ''; });
+  denganProgres('Memuat data sesi...', function () { return call('dataSesi', S.token, id); })
+    .then(terapkanDataSesi)
+    .catch(function (e) { toast(e.message, 'err', 4000); $('list').innerHTML = ''; });
+}
+function terapkanDataSesi(r) {
+  S.sesi = r.sesi; S.jamaah = r.jamaah; S.lain = r.lain || []; S.absen = r.absen; S.pending = {}; S.ver = r.ver || null;
+  hist = []; renderHist(); show($('scanRes'), false);
+  S.siap = true;
+  updateBannerTutup();
+  renderList(); setSaveInfo(''); mulaiSinkron();
 }
 function updateBannerTutup() {
   var tutup = S.sesi && S.sesi.status === 'Ditutup';
@@ -569,6 +627,10 @@ function flush() {
     S.saveCount++;
     if (r.absen) terapkanServer({ ver: r.ver, absen: r.absen });   // sekalian sinkron hasil HP lain
     if (r.ditolak && r.ditolak.length) toast('Ditolak (di luar bagian Anda / tidak wajib / ID tidak dikenal): ' + r.ditolak.join(', '), 'warn', 4000);
+    else if (r.sudah && r.sudah.length) {
+      var nm = r.sudah.map(function (id) { var j = cariId(S.jamaah, id); return j ? j.nama : id; });
+      toast('ℹ️ ' + nm.join(', ') + ' sudah dicatat petugas lain lebih dulu — data pertama dipertahankan.', 'warn', 4500);
+    }
     setSaveInfo('Tersimpan ✓ ' + new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
   }).catch(function (e) {
     if (/^SESI_DITUTUP/.test(e.message)) {
@@ -712,9 +774,9 @@ function tutupSesi() {
   }
   tutupArmed = false; $('btnTutup').textContent = 'Menutup...'; $('btnTutup').disabled = true;
   var go = function () {
-    call('tutupSesi', S.token, S.sesi.id).then(function (r) {
+    denganProgres('Menutup sesi & menghitung Alpa...', function () { return call('tutupSesi', S.token, S.sesi.id); }).then(function (r) {
       toast('Sesi ditutup. Alpa: ' + r.alpa + ', dikecualikan: ' + r.dikecualikan, 'ok', 3500);
-      loadInit(S.sesi.id);
+      if (r.paket) terapkanPaket(r.paket); else loadInit(S.sesi.id);
     }).catch(function (e) { toast(e.message, 'err', 4000); })
       .then(function () { $('btnTutup').disabled = false; $('btnTutup').textContent = 'Tutup Sesi Ini'; });
   };
@@ -723,7 +785,7 @@ function tutupSesi() {
 function bukaKartu() {
   if (typeof qrcode === 'undefined') { toast('Library QR belum termuat. Periksa koneksi lalu muat ulang.', 'err', 4000); return; }
   stopLive();
-  call('kartu', S.token).then(function (r) {
+  denganProgres('Menyiapkan kartu QR...', function () { return call('kartu', S.token); }).then(function (r) {
     S.kartu = r.jamaah; S.kelompokKartu = r.namaKelompok;
     show($('vAbsen'), false); show($('vKartu'), true); renderKartu();
     history.pushState({ v: 'kartu' }, '', '#kartu'); window.scrollTo(0, 0);
@@ -796,7 +858,7 @@ window.addEventListener('popstate', function () {
 (function start() {
   if (location.hash) history.replaceState({ v: 'absen' }, '', location.pathname + location.search);
   var saved = ambilLogin();
-  if (saved) { show($('vLogin'), false); show($('vLoading'), true); lanjutkanSesi(saved); }
+  if (saved) { show($('vLogin'), false); progres('Memuat absensi...'); lanjutkanSesi(saved); }
 })();
 </script>
 </body>
