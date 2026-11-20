@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -91,12 +92,12 @@
 </style>
 </head>
 <body>
-
+ 
 <header class="noprint">
   <div class="t" id="hTitle">Absensi Pengajian</div>
   <div class="s"><span id="hUser"></span><a href="#" id="btnLogout" class="hide">Keluar</a></div>
 </header>
-
+ 
 <main>
   <!-- LOGIN -->
   <section id="vLogin">
@@ -108,7 +109,7 @@
       <p class="muted" id="loginMsg"></p>
     </div>
   </section>
-
+ 
   <!-- ABSENSI -->
   <section id="vAbsen" class="hide">
     <div class="card">
@@ -119,9 +120,9 @@
         <button data-jk="L">Pria</button><button data-jk="P">Wanita</button>
       </div>
     </div>
-
+ 
     <div id="bannerTutup" class="banner warn hide"></div>
-
+ 
     <div class="card">
       <div class="stats">
         <div><b id="nHadir">0</b><span>Hadir</span></div>
@@ -130,7 +131,7 @@
       </div>
       <div class="save" id="saveInfo"></div>
     </div>
-
+ 
     <div class="card" id="cardScan">
       <div class="row2">
         <button class="btn" id="btnScan">📷 Scan QR</button>
@@ -148,7 +149,7 @@
       <p class="muted" style="margin:8px 0 0"><b>Scan dari Foto</b> = cadangan jika kamera live tidak bisa dibuka: kamera HP memotret kartu, lalu QR dibaca dari foto itu.<br>
       Jamaah lupa kartu? Cari namanya di bawah lalu tekan <b>Hadir</b>.</p>
     </div>
-
+ 
     <div class="card">
       <input type="text" id="q" placeholder="Cari nama (atau scanner Bluetooth → Enter)" autocomplete="off">
       <div class="chips" id="chips">
@@ -159,7 +160,7 @@
       </div>
       <div class="list" id="list"></div>
     </div>
-
+ 
     <div class="card hide" id="cardAdmin">
       <b>Menu Admin</b>
       <div class="row2" style="margin-top:10px">
@@ -169,7 +170,7 @@
       <p class="muted" style="margin:8px 0 0">Sesi juga ditutup otomatis setiap dini hari (yang tidak tercatat = Alpa).</p>
     </div>
   </section>
-
+ 
   <!-- KARTU QR -->
   <section id="vKartu" class="hide">
     <div class="card noprint">
@@ -183,9 +184,9 @@
     <div class="kartu-grid" id="kartuGrid"></div>
   </section>
 </main>
-
+ 
 <div id="toast"></div>
-
+ 
 <script>
 /* ===================== KONFIGURASI =====================
  * API_URL hanya diisi jika file ini di-hosting DI LUAR Apps Script
@@ -193,15 +194,15 @@
  * web app Apps Script (.../exec). Jika dibuka dari Apps Script, biarkan kosong.
  */
 var API_URL = 'https://script.google.com/macros/s/AKfycbw_qA6FotuiUx3-3nZOXv9WCpx7tpKNCGs2pCWz2AT5st97wRhsVcCRI5XkN89r79DR/exec';
-
+ 
 var STATUS_H = 'Hadir', STATUS_I = 'Izin';
 var S = { pin: null, petugas: null, kelompok: '', today: '', sesiList: [], sesi: null, jamaah: [], lain: [], absen: {},
           pending: {}, saving: false, timer: null, jk: 'L', filter: 'semua', q: '', kartu: [] };
-
+ 
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function show(el, on) { el.classList.toggle('hide', !on); }
-
+ 
 /* ---------- panggilan server (Apps Script atau fetch ke API_URL) ---------- */
 function call(fn) {
   var args = Array.prototype.slice.call(arguments, 1);
@@ -212,12 +213,13 @@ function call(fn) {
         .apiCall(fn, args);
     });
   }
-  if (!API_URL) return Promise.reject(new Error('API_URL belum diisi'));
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/.test(API_URL))
+    return Promise.reject(new Error('API_URL belum diisi dengan benar (harus link web app .../exec)'));
   return fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn: fn, args: args }) })
     .then(function (r) { return r.json(); })
     .then(function (j) { if (!j.ok) throw new Error(j.error); return j.data; });
 }
-
+ 
 /* ---------- umpan balik ---------- */
 var toastT = null;
 function toast(msg, type, ms) {
@@ -235,7 +237,7 @@ function beep(ok) {
   } catch (e) {}
   try { if (navigator.vibrate) navigator.vibrate(ok ? 60 : [80, 60, 80]); } catch (e) {}
 }
-
+ 
 /* ---------- login ---------- */
 function doLogin(pin) {
   $('btnLogin').disabled = true; $('loginMsg').textContent = 'Memeriksa...';
@@ -265,7 +267,7 @@ function logout() {
   try { sessionStorage.removeItem('absen_pin'); } catch (e) {}
   location.reload();
 }
-
+ 
 /* ---------- sesi ---------- */
 function loadInit(pilihId) {
   call('init', S.pin).then(function (r) {
@@ -299,7 +301,7 @@ function loadSesi(id) {
   }).catch(function (e) { toast(e.message, 'err', 4000); $('list').innerHTML = ''; });
 }
 function bolehUbah() { return S.sesi && (S.sesi.status !== 'Ditutup' || S.petugas.admin); }
-
+ 
 /* ---------- daftar ---------- */
 function renderSeg() {
   Array.prototype.forEach.call($('segJK').querySelectorAll('button'), function (b) { b.classList.toggle('on', b.getAttribute('data-jk') === S.jk); });
@@ -331,7 +333,7 @@ function renderList() {
       '<button class="bh" data-st="Hadir"' + dis + '>Hadir</button><button class="bi" data-st="Izin"' + dis + '>Izin</button></div>';
   }).join('');
 }
-
+ 
 /* ---------- ubah status & simpan otomatis ---------- */
 function setStatus(id, status, metode) {
   if (!bolehUbah()) return;
@@ -364,7 +366,7 @@ function flush() {
 window.addEventListener('beforeunload', function (e) {
   if (Object.keys(S.pending).length) { e.preventDefault(); e.returnValue = ''; }
 });
-
+ 
 /* ---------- scan QR ---------- */
 var qrLive = null, lastScan = { id: '', t: 0 };
 function libScanner() { return typeof Html5Qrcode !== 'undefined'; }
@@ -416,12 +418,24 @@ function startLive() {
   if (!libScanner()) { toast('Scanner belum termuat. Gunakan pencarian nama.', 'warn', 3500); return; }
   show($('reader'), true);
   qrLive = new Html5Qrcode('reader');
-  qrLive.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 220, height: 220 } }, onScan, function () {})
+  var cfg = { fps: 10, qrbox: { width: 230, height: 230 } };
+  var q = qrLive;
+  q.start({ facingMode: 'environment' }, cfg, onScan, function () {})
+    .catch(function () {   // sebagian HP menolak facingMode: coba pilih kamera belakang dari daftar
+      return Html5Qrcode.getCameras().then(function (cams) {
+        if (!cams || !cams.length) throw new Error('Kamera tidak ditemukan');
+        var back = cams.filter(function (c) { return /back|belakang|rear|environment/i.test(c.label); })[0] || cams[cams.length - 1];
+        return q.start(back.id, cfg, onScan, function () {});
+      });
+    })
     .then(function () { $('btnScan').textContent = '⏹ Stop Scan'; })
-    .catch(function () {
-      try { qrLive.clear(); } catch (e) {}
-      qrLive = null; show($('reader'), false);
-      toast('Kamera live tidak bisa dibuka di halaman ini. Pakai "Scan dari Foto".', 'warn', 5000);
+    .catch(function (err) {
+      try { q.clear(); } catch (e) {}
+      if (qrLive === q) qrLive = null;
+      show($('reader'), false);
+      var diAppsScript = !!(window.google && google.script && google.script.run);
+      toast(diAppsScript ? 'Kamera diblokir di halaman Apps Script. Pakai link versi scan (GitHub Pages) atau "Scan dari Foto".'
+                         : 'Kamera tidak bisa dibuka: ' + (err && err.message || err) + '. Cek izin kamera di browser.', 'warn', 6000);
       $('btnFoto').classList.replace('btn2', 'btn');
     });
 }
@@ -438,7 +452,7 @@ function scanFoto(file) {
     .catch(function () { beep(false); toast('QR tidak terbaca. Foto lebih dekat & terang.', 'err', 3500); })
     .then(function () { try { h.clear(); } catch (e) {} });
 }
-
+ 
 /* ---------- admin ---------- */
 var tutupArmed = false;
 function tutupSesi() {
@@ -475,7 +489,7 @@ function renderKartu() {
       '<div class="ki">' + esc(j.id) + '</div></div>';
   }).join('') || '<p class="muted">Belum ada jamaah ber-ID.</p>';
 }
-
+ 
 /* ---------- event ---------- */
 $('btnLogin').onclick = function () { var p = $('pin').value.trim(); if (p) doLogin(p); };
 $('pin').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('btnLogin').click(); });
@@ -518,7 +532,7 @@ $('btnKartu').onclick = bukaKartu;
 $('kartuJK').onchange = renderKartu;
 $('btnPrint').onclick = function () { window.print(); };
 $('btnKembali').onclick = function () { show($('vKartu'), false); show($('vAbsen'), true); };
-
+ 
 (function start() {
   var saved = null;
   try { saved = sessionStorage.getItem('absen_pin'); } catch (e) {}
@@ -527,3 +541,4 @@ $('btnKembali').onclick = function () { show($('vKartu'), false); show($('vAbsen
 </script>
 </body>
 </html>
+ 
