@@ -55,7 +55,7 @@ const AX = { KEY: 0, SESI: 1, TGL: 2, ID: 3, NAMA: 4, JK: 5, STATUS: 6, METODE: 
 
 // Naikkan angka ini setiap kali Code.gs diubah. Web app akan memperingatkan jika server masih versi lama
 // (artinya lupa: Deploy -> Kelola deployment -> Edit -> Versi baru).
-const VERSI_SERVER = 4;
+const VERSI_SERVER = 7;
 
 const SENSUS_ID_DEFAULT = '1jgTL5COMzaDnvnnOTL_0DhQOlycHFaSS7HavLhR7IW0'; // file "SENSUS BBK02 Dashboard"
 
@@ -282,13 +282,14 @@ function getPetugasByPin_(pin) {
   const lr = sh.getLastRow();
   if (lr < 2) throw new Error('Belum ada petugas terdaftar');
   const rows = sh.getRange(2, 1, lr - 1, 5).getDisplayValues();
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    if (String(r[1]).trim() === pin && !/^(tidak|no|n|false)$/i.test(String(r[4]).trim())) {
-      return { nama: String(r[0] || 'Petugas'), bagian: normJK_(r[2]) || 'Semua', admin: /admin/i.test(r[3]) };
-    }
+  const cocok = rows.filter(r => String(r[1]).trim() === pin && !/^(tidak|no|n|false)$/i.test(String(r[4]).trim()));
+  if (!cocok.length) throw new Error('PIN salah atau petugas tidak aktif');
+  if (cocok.length > 1) {
+    throw new Error('PIN ini dipakai ' + cocok.length + ' petugas (' + cocok.map(r => r[0]).join(', ') +
+      '). Admin: buat PIN berbeda untuk tiap petugas di tab Petugas.');
   }
-  throw new Error('PIN salah atau petugas tidak aktif');
+  const r = cocok[0];
+  return { nama: String(r[0] || 'Petugas').trim(), bagian: normJK_(r[2]) || 'Semua', admin: /admin/i.test(r[3]) };
 }
 
 /** Autentikasi PIN + pembatas percobaan (30 gagal / 10 menit). */
@@ -388,6 +389,7 @@ function tutupSesi_(sesi) {
   const ssh = sheet_(SH.SESI);
   ssh.getRange(sesi.row, 5).setValue(SESI_TUTUP);
   ssh.getRange(sesi.row, 8).setValue(now);
+  hapusCacheAbsen_(sesi.id);
   return { alpa: nAlpa, dikecualikan: nKecuali };
 }
 
@@ -424,7 +426,38 @@ function readAbsen_() {
   return sh.getRange(2, 1, lr - 1, HDR.ABSEN.length).getValues();
 }
 
-/** changes: [{id, status: 'Hadir'|'Izin'|'' , metode: 'QR'|'Manual'}] */
+// ---------------------------------------------------------------------
+// Sinkron antar-HP: status absensi per sesi disimpan di cache (+ nomor versi).
+// HP petugas cukup bertanya "versi masih sama?" setiap ±15 detik -> ringan & cepat.
+// ---------------------------------------------------------------------
+const ABSEN_CACHE_TTL = 120;   // detik; sesudahnya dibaca ulang dari sheet (menangkap edit manual di sheet)
+function absenKey_(sesiId) { return 'absen_v1_' + sesiId; }
+function bacaAbsenSesi_(sesiId) {
+  const map = {};
+  readAbsen_().forEach(r => {
+    if (String(r[AX.SESI]) === sesiId) map[String(r[AX.ID]).trim().toUpperCase()] = String(r[AX.STATUS] || '');
+  });
+  return map;
+}
+function simpanCacheAbsen_(sesiId, o) {
+  try { CacheService.getScriptCache().put(absenKey_(sesiId), JSON.stringify(o), ABSEN_CACHE_TTL); } catch (e) { /* tanpa cache */ }
+}
+/** {ver, absen:{ID: status}} — dari cache, atau dibaca ulang dari sheet (di dalam lock agar tidak bentrok dengan penyimpanan). */
+function getAbsenSesi_(sesiId) {
+  const raw = CacheService.getScriptCache().get(absenKey_(sesiId));
+  if (raw) { try { return JSON.parse(raw); } catch (e) { /* baca ulang */ } }
+  return withLock_(() => {
+    const raw2 = CacheService.getScriptCache().get(absenKey_(sesiId));
+    if (raw2) { try { return JSON.parse(raw2); } catch (e) { /* baca ulang */ } }
+    const o = { ver: Date.now(), absen: bacaAbsenSesi_(sesiId) };
+    simpanCacheAbsen_(sesiId, o);
+    return o;
+  });
+}
+function hapusCacheAbsen_(sesiId) { CacheService.getScriptCache().remove(absenKey_(sesiId)); }
+
+/** changes: [{id, status: 'Hadir'|'Izin'|'' , metode: 'Scan QR'|'Foto QR'|'Ketik ID'|'Manual'}] */
+const METODE_VALID = ['Scan QR', 'Foto QR', 'Ketik ID', 'Manual'];
 function simpanAbsen_(sesi, changes, petugas) {
   const sh = sheet_(SH.ABSEN);
   const master = indexBy_(getMaster_(), 'id');
@@ -439,25 +472,37 @@ function simpanAbsen_(sesi, changes, petugas) {
   const now = new Date();
   const appends = [];
   const ditolak = [];
+  const tulis = {};   // id -> status yang benar-benar ditulis (untuk cache sinkron)
   let n = 0;
   Object.keys(perId).forEach(id => {
     const c = perId[id];
     const j = master[id];
     if (!j || j.status === 'Nonaktif') { ditolak.push(id); return; }
+    if (petugas.bagian !== 'Semua' && j.jk !== petugas.bagian) { ditolak.push(id); return; }   // di luar hak akses
     let status = (c.status === ST.H || c.status === ST.I) ? c.status : '';
     if (!status && sesi.status === SESI_TUTUP) status = j.status === 'Dikecualikan' ? ST.X : ST.A; // koreksi admin
-    const metode = c.metode === 'QR' ? 'QR' : 'Manual';
+    const metode = c.metode === 'QR' ? 'Scan QR' : (METODE_VALID.indexOf(c.metode) >= 0 ? c.metode : 'Manual');
     const key = sesi.id + '|' + id;
     if (keyRow[key]) {
       sh.getRange(keyRow[key], AX.STATUS + 1, 1, 4).setValues([[status, metode, petugas.nama, now]]);
+      tulis[id] = status;
       n++;
     } else if (status) {
       appends.push([key, sesi.id, sesi.tanggal, id, j.nama, j.jk, status, metode, petugas.nama, now]);
+      tulis[id] = status;
       n++;
     }
   });
   if (appends.length) sh.getRange(sh.getLastRow() + 1, 1, appends.length, appends[0].length).setValues(appends);
-  return { tersimpan: n, ditolak: ditolak };
+  // perbarui cache sinkron (masih di dalam lock)
+  const raw = CacheService.getScriptCache().get(absenKey_(sesi.id));
+  let snap = null;
+  if (raw) { try { snap = JSON.parse(raw); } catch (e) { snap = null; } }
+  if (snap) { Object.keys(tulis).forEach(id => { snap.absen[id] = tulis[id]; }); }
+  else snap = { absen: bacaAbsenSesi_(sesi.id) };
+  snap.ver = Math.max(Date.now(), (snap.ver || 0) + 1);
+  simpanCacheAbsen_(sesi.id, snap);
+  return { tersimpan: n, ditolak: ditolak, ver: snap.ver, absen: snap.absen };
 }
 
 // ---------------------------------------------------------------------
@@ -481,20 +526,18 @@ const API = {
     const p = auth_(pin);
     const s = getSesiList_().find(x => x.id === sesiId);
     if (!s) throw new Error('Sesi tidak ditemukan');
-    // Semua petugas boleh mencatat jamaah pria & wanita (saling bantu). "Bagian" hanya tampilan awal.
+    // Hak akses dari kolom "Bagian" di tab Petugas: Semua = pria & wanita, L = pria saja, P = wanita saja.
     const semua = getMaster_().filter(j => j.id && j.jk);
+    const boleh = j => p.bagian === 'Semua' || j.jk === p.bagian;
     const jamaah = semua
-      .filter(j => j.status !== 'Nonaktif')
+      .filter(j => j.status !== 'Nonaktif' && boleh(j))
       .sort((a, b) => a.nama.localeCompare(b.nama, 'id'))
       .map(j => ({ id: j.id, nama: j.nama, lengkap: j.lengkap, jk: j.jk, ket: j.ket, kecuali: j.status === 'Dikecualikan' }));
-    // jamaah tidak wajib (Flag N) — hanya untuk menampilkan nama saat QR-nya di-scan
-    const lain = semua.filter(j => j.status === 'Nonaktif')
+    // jamaah lain (Flag N / di luar bagian petugas) — hanya untuk menampilkan nama saat QR-nya di-scan
+    const lain = semua.filter(j => j.status === 'Nonaktif' || !boleh(j))
       .map(j => ({ id: j.id, nama: j.nama, jk: j.jk, wajib: j.status !== 'Nonaktif' }));
-    const absen = {};
-    readAbsen_().forEach(r => {
-      if (String(r[AX.SESI]) === sesiId) absen[String(r[AX.ID]).trim().toUpperCase()] = String(r[AX.STATUS] || '');
-    });
-    return { sesi: sesiDto_(s), jamaah: jamaah, lain: lain, absen: absen };
+    const snap = getAbsenSesi_(sesiId);
+    return { sesi: sesiDto_(s), jamaah: jamaah, lain: lain, absen: snap.absen, ver: snap.ver };
   },
   simpan: function (pin, sesiId, changes) {
     const p = auth_(pin);
@@ -506,6 +549,15 @@ const API = {
       if (s.status === SESI_TUTUP && !p.admin) throw new Error('Sesi sudah ditutup. Hubungi admin untuk koreksi.');
       return simpanAbsen_(s, changes, p);
     });
+  },
+  /** Dipanggil tiap ±15 dtk oleh setiap HP. Hanya mengirim data jika versi berubah. */
+  sinkron: function (pin, sesiId, verKlien) {
+    auth_(pin);
+    const s = getSesiList_().find(x => x.id === sesiId);
+    if (!s) throw new Error('Sesi tidak ditemukan');
+    const snap = getAbsenSesi_(sesiId);
+    if (verKlien && snap.ver === verKlien) return { ver: snap.ver, sama: true, status: s.status };
+    return { ver: snap.ver, absen: snap.absen, status: s.status };
   },
   tutupSesi: function (pin, sesiId) {
     const p = auth_(pin);
@@ -840,7 +892,7 @@ function setupAwal() {
   }
   const nP = Math.max(sh.getMaxRows() - 1, 1);
   sh.getRange(2, 3, nP, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['Semua', 'L', 'P'], true)
-    .setHelpText('Tampilan awal daftar di web app (L = Pria, P = Wanita). Semua petugas tetap bisa mencatat pria & wanita.').build());
+    .setHelpText('Hak akses petugas: Semua = boleh mencatat pria & wanita, L = pria saja, P = wanita saja.').build());
   sh.getRange(2, 4, nP, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['Petugas', 'Admin'], true).build());
   sh.getRange(2, 5, nP, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['Ya', 'Tidak'], true).build());
 

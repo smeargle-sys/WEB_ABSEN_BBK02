@@ -15,7 +15,7 @@
    - **Flag Absen** (kolom J): `Y` = wajib absen, masuk daftar dan dihitung. `N` = tidak wajib, tidak muncul dan tidak dihitung.
    - **Status Keberadaan**: hanya ditampilkan sebagai label, misalnya "Mondok" atau "Kerja Luar".
 7. Menu **Absensi → 2. Cek data Jamaah** untuk melihat laporan ID kosong/ganda, Flag selain Y/N, dan data yang tidak konsisten.
-8. Tab **Petugas**: ganti PIN contoh (123456 / 111111 / 222222). Kolom **Bagian** (`L`/`P`/`Semua`) hanya menentukan **tampilan awal** daftar. Semua petugas tetap bisa mencatat jamaah pria maupun wanita, sehingga bisa saling bantu. Isi **Peran** `Admin` untuk pengurus.
+8. Tab **Petugas**: ganti PIN contoh (123456 / 111111 / 222222). Kolom **Bagian** adalah **hak akses**: `Semua` boleh mencatat pria dan wanita (bisa membantu kedua bagian), `L` hanya pria, `P` hanya wanita. Jika petugas khusus pria men-scan QR wanita, muncul pesan oranye *"di luar bagian Anda"* dan datanya tidak dicatat. Isi **Peran** `Admin` untuk pengurus. Jumlah petugas tidak dibatasi, tetapi **PIN harus berbeda** untuk setiap petugas.
 9. Tab **Pengaturan**: sudah terisi Nama Kelompok *BBK02*, Hari *Senin, Jumat*, dan ID file sensus. Atur Ambang Kurang %, Ambang Perhatian %, dan Izin Dihitung Hadir sesuai kebutuhan.
    - Perubahan di tab Jamaah terbaca otomatis paling lambat **5 menit** (ada cache supaya scan cepat). Untuk memuat seketika, pakai menu **2. Cek data Jamaah**.
 10. Di Apps Script: **Deploy → Deployment baru → Jenis: Aplikasi web**
@@ -30,12 +30,14 @@
 | Siapa | Kapan | Apa |
 |---|---|---|
 | Sistem | ±05:00 di hari pengajian | Sesi dibuat otomatis |
-| Petugas Pria & Wanita | Saat pengajian | Buka link → PIN → scan QR atau tekan **Hadir**/**Izin**. Tersimpan otomatis. Petugas boleh saling bantu men-scan jamaah pria maupun wanita, dan kolom cari mencari keduanya. |
+| Petugas Pria & Wanita | Saat pengajian | Buka link → PIN → scan QR atau tekan **Hadir**/**Izin**. Tersimpan otomatis. Petugas dengan Bagian `Semua` bisa membantu men-scan pria maupun wanita. |
 | Sistem | ±01:00 esok harinya | Sesi ditutup: yang tidak tercatat = **Alpa**, yang Dikecualikan = tidak dihitung |
 | Pengurus | Kapan saja | Tab **Dashboard_Absensi** → pilih Bulan Awal, Bulan Akhir, dan Jenis Kelamin |
 | Pengurus | Jika ada perubahan jamaah | Cukup ubah tab **Jamaah** (Flag Absen / jamaah baru). Berlaku di sesi berikutnya; riwayat lama tidak berubah. |
 
 Tap **Hadir** sekali lagi untuk membatalkan. Admin tetap bisa mengoreksi sesi yang sudah ditutup.
+
+**Banyak petugas sekaligus:** semua HP **sinkron otomatis setiap ±15 detik**, dan juga setiap kali menyimpan. Jumlah hadir di semua HP selalu sama, dan jamaah yang sudah di-scan petugas lain langsung muncul sebagai "sudah tercatat". Sinkron berhenti sendiri saat layar HP mati, dan langsung sinkron lagi saat dibuka. Status sinkron terlihat di bawah angka Hadir.
 
 ## C. Scan QR & cadangannya
 **Setelah QR di-scan**, panel besar menampilkan **Nama Absen**, Nama Lengkap, dan statusnya. Kehadiran **langsung tercatat**, dan ada tombol **Batalkan** jika salah scan. Warna panel:

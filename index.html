@@ -29,7 +29,8 @@
   .row2 { display:flex; gap:8px; }
   .row2 > * { flex:1; }
   .seg { display:flex; background:#eef2ef; border-radius:10px; padding:3px; gap:3px; }
-  .seg button { flex:1; background:transparent; color:#374151; padding:8px; font-size:14px; }
+  .seg button { flex:1; background:transparent; color:#374151; padding:8px 4px; font-size:14px; }
+  .seg button span { font-weight:500; font-size:12px; opacity:.8; }
   .seg button.on { background:#fff; color:var(--g); box-shadow:0 1px 2px rgba(0,0,0,.12); }
   .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; text-align:center; }
   .stats div { background:var(--gl); border-radius:10px; padding:8px 4px; }
@@ -55,7 +56,8 @@
   .it.h .bh { background:var(--g2); color:#fff; }
   .it.i .bi { background:#d69e2e; color:#fff; }
   .it button:disabled { opacity:.5; }
-  #reader { width:100%; margin-top:10px; border-radius:10px; overflow:hidden; }
+  #reader { width:100%; margin-top:10px; border-radius:10px; overflow:hidden; position:relative; }
+  #reader video { display:block; }   /* hilangkan celah hitam di bawah video */
   /* mode scan layar penuh */
   .sa-top { display:none; }
   #scanArea.full { position:fixed; inset:0; z-index:30; background:#0f1a10; overflow-y:auto;
@@ -64,8 +66,8 @@
   #scanArea.full .sa-top b { font-size:17px; }
   #scanArea.full .sa-top .sa-c { font-size:12px; opacity:.85; margin-top:2px; }
   #scanArea.full .sa-top button { background:#fff; color:var(--g); padding:9px 14px; }
-  #scanArea.full #reader { margin-top:10px; max-height:52vh; background:#000; }
-  #scanArea.full #reader video { max-height:52vh; object-fit:cover; }
+  /* ukuran diatur lewat lebar kotak (kamera persegi), BUKAN memotong video -> kotak bidik tetap pas */
+  #scanArea.full #reader { width:min(100%, 52vh); margin:10px auto 0; }
   #scanArea.full .sr { margin-top:10px; }
   #scanArea.full .hist { color:#c8d6c9; }
   #scanArea.full .hist b { color:#fff; }
@@ -114,6 +116,15 @@
 </header>
 
 <main>
+  <!-- MEMUAT (login otomatis) -->
+  <section id="vLoading" class="hide">
+    <div class="card center" style="padding:28px 12px">
+      <div style="font-size:28px">⏳</div>
+      <p style="margin:8px 0 0"><b>Memuat absensi...</b></p>
+      <p class="muted" style="margin:4px 0 0">Menghubungkan ke server, biasanya 2–5 detik.</p>
+    </div>
+  </section>
+
   <!-- LOGIN -->
   <section id="vLogin">
     <div class="card">
@@ -132,7 +143,7 @@
       <select id="selSesi"></select>
       <button class="btn btn-w hide" id="btnBukaSesi" style="margin-top:8px">+ Buka Sesi Hari Ini</button>
       <div id="segJK" class="seg" style="margin-top:10px">
-        <button data-jk="L">Pria</button><button data-jk="P">Wanita</button>
+        <button data-jk="S">Semua <span id="segS"></span></button><button data-jk="L">Pria <span id="segL"></span></button><button data-jk="P">Wanita <span id="segP"></span></button>
       </div>
     </div>
 
@@ -140,6 +151,7 @@
     <div id="bannerTutup" class="banner warn hide"></div>
 
     <div class="card">
+      <div class="muted center" style="margin-bottom:6px"><b id="statJudul">Total Pria + Wanita</b></div>
       <div class="stats">
         <div><b id="nHadir">0</b><span>Hadir</span></div>
         <div><b id="nIzin">0</b><span>Izin</span></div>
@@ -147,6 +159,7 @@
       </div>
       <div class="muted center" id="totalInfo" style="margin-top:8px"></div>
       <div class="save" id="saveInfo"></div>
+      <div class="save" id="syncInfo"></div>
     </div>
 
     <div class="card" id="cardScan">
@@ -218,11 +231,13 @@
  *   window.ABSEN_CONFIG = { API_URL: 'https://script.google.com/macros/s/..../exec' };
  */
 var API_URL = (window.ABSEN_CONFIG && window.ABSEN_CONFIG.API_URL) || '';
-var VERSI_APP = 4;   // versi tampilan; server (Code.gs) minimal harus versi ini
+var VERSI_APP = 7;
+var SYNC_MS = 15000;   // sinkron antar-HP tiap 15 detik   // versi tampilan; server (Code.gs) minimal harus versi ini
 
 var STATUS_H = 'Hadir', STATUS_I = 'Izin';
 var S = { pin: null, petugas: null, kelompok: '', today: '', sesiList: [], sesi: null, jamaah: [], lain: [], absen: {},
-          pending: {}, saving: false, timer: null, jk: 'L', filter: 'semua', q: '', kartu: [] };
+          pending: {}, saving: false, timer: null, jk: 'L', filter: 'semua', q: '', kartu: [],
+          ver: null, syncing: false, saveCount: 0, syncTimer: null };
 
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -268,33 +283,53 @@ function doLogin(pin) {
   $('btnLogin').disabled = true; $('loginMsg').textContent = 'Memeriksa...';
   call('login', pin).then(function (r) {
     S.pin = pin; S.petugas = r.petugas; S.kelompok = r.namaKelompok; S.versiServer = r.versiServer || 0;
-    try { sessionStorage.setItem('absen_pin', pin); } catch (e) {}
+    simpanLogin(pin);
     $('loginMsg').textContent = '';
     afterLogin();
   }).catch(function (e) {
     $('loginMsg').textContent = e.message;
-    try { sessionStorage.removeItem('absen_pin'); } catch (x) {}
+    hapusLogin();
+    show($('vLoading'), false); show($('vLogin'), true);
   }).then(function () { $('btnLogin').disabled = false; });
 }
+var LOGIN_KEY = 'absen_bbk02_login', LOGIN_JAM = 12;   // login diingat 12 jam di HP ini
+function simpanLogin(pin) {
+  try { localStorage.setItem(LOGIN_KEY, JSON.stringify({ pin: pin, exp: Date.now() + LOGIN_JAM * 3600e3 })); } catch (e) {}
+}
+function ambilLogin() {
+  try {
+    var o = JSON.parse(localStorage.getItem(LOGIN_KEY) || 'null');
+    if (o && o.pin && o.exp > Date.now()) return o.pin;
+  } catch (e) {}
+  hapusLogin(); return null;
+}
+function hapusLogin() { try { localStorage.removeItem(LOGIN_KEY); sessionStorage.removeItem('absen_pin'); } catch (e) {} }
 function afterLogin() {
   $('hTitle').textContent = 'Absensi — ' + S.kelompok;
   $('hUser').textContent = S.petugas.nama + (S.petugas.bagian === 'Semua' ? '' : ' · ' + (S.petugas.bagian === 'L' ? 'Pria' : 'Wanita')) + (S.petugas.admin ? ' · Admin' : '');
   show($('btnLogout'), true);
-  show($('vLogin'), false); show($('vAbsen'), true);
+  show($('vLoading'), false); show($('vLogin'), false); show($('vAbsen'), true);
   show($('cardAdmin'), S.petugas.admin);
   $('versiInfo').textContent = 'Versi aplikasi ' + VERSI_APP + ' · server ' + (S.versiServer || 'lama');
   if (S.versiServer < VERSI_APP) {
     $('bannerVersi').textContent = '⚠️ Server masih versi lama (' + (S.versiServer || 'sebelum 4') + '). Admin: buka Apps Script → Deploy → Kelola deployment → ✏️ Edit → Versi baru → Deploy. URL tidak berubah.';
     show($('bannerVersi'), true);
   }
-  S.jk = S.petugas.bagian === 'Semua' ? 'L' : S.petugas.bagian;
+  var jkTersimpan = null; try { jkTersimpan = localStorage.getItem('absen_bbk02_jk'); } catch (e) {}
+  if (S.petugas.bagian === 'Semua') {
+    S.jk = (jkTersimpan === 'L' || jkTersimpan === 'P' || jkTersimpan === 'S') ? jkTersimpan : 'S';
+  } else {
+    S.jk = S.petugas.bagian;   // petugas khusus pria / wanita: tab dikunci
+  }
+  show($('segJK'), S.petugas.bagian === 'Semua');
+  $('statJudul').textContent = S.petugas.bagian === 'Semua' ? 'Total Pria + Wanita' : 'Total ' + (S.petugas.bagian === 'L' ? 'Pria' : 'Wanita') + ' (bagian Anda)';
   renderSeg();
   loadInit();
 }
 function logout() {
   if (Object.keys(S.pending).length && !window.confirm('Masih ada data yang belum tersimpan. Tetap keluar?')) return;
-  try { sessionStorage.removeItem('absen_pin'); } catch (e) {}
-  location.reload();
+  hapusLogin();
+  location.replace(location.pathname + location.search);
 }
 
 /* ---------- sesi ---------- */
@@ -321,30 +356,84 @@ function bukaSesiHariIni() {
 function loadSesi(id) {
   $('list').innerHTML = '<p class="muted center">Memuat daftar jamaah...</p>';
   call('dataSesi', S.pin, id).then(function (r) {
-    S.sesi = r.sesi; S.jamaah = r.jamaah; S.lain = r.lain || []; S.absen = r.absen; S.pending = {};
+    S.sesi = r.sesi; S.jamaah = r.jamaah; S.lain = r.lain || []; S.absen = r.absen; S.pending = {}; S.ver = r.ver || null;
     hist = []; renderHist(); show($('scanRes'), false);
-    var tutup = S.sesi.status === 'Ditutup';
-    show($('bannerTutup'), tutup);
-    $('bannerTutup').textContent = tutup ? (S.petugas.admin ? 'Sesi ini sudah ditutup. Anda admin: perubahan tetap bisa disimpan sebagai koreksi.' : 'Sesi ini sudah ditutup. Data hanya bisa dilihat.') : '';
-    show($('cardScan'), !tutup);
-    renderList(); setSaveInfo('');
+    updateBannerTutup();
+    renderList(); setSaveInfo(''); mulaiSinkron();
   }).catch(function (e) { toast(e.message, 'err', 4000); $('list').innerHTML = ''; });
 }
+function updateBannerTutup() {
+  var tutup = S.sesi && S.sesi.status === 'Ditutup';
+  show($('bannerTutup'), !!tutup);
+  $('bannerTutup').textContent = tutup ? (S.petugas.admin ? 'Sesi ini sudah ditutup. Anda admin: perubahan tetap bisa disimpan sebagai koreksi.' : 'Sesi ini sudah ditutup. Data hanya bisa dilihat.') : '';
+  show($('cardScan'), !!S.sesi && !tutup);
+}
+
+/* ---------- sinkron antar-HP ---------- */
+function mulaiSinkron() {
+  clearInterval(S.syncTimer);
+  S.syncTimer = setInterval(function () { sinkron(); }, SYNC_MS);
+  setSyncInfo(true);
+}
+function setSyncInfo(ok, msg) {
+  var el = $('syncInfo');
+  el.textContent = ok ? '🔄 Sinkron otomatis · ' + new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                      : '⚠️ Gagal sinkron (' + (msg || 'koneksi') + '), mencoba lagi...';
+  el.classList.toggle('err', !ok);
+}
+/** Terapkan data server; perubahan lokal yang belum tersimpan (pending) tidak ditimpa. */
+function terapkanServer(r) {
+  if (!r || !S.sesi) return;
+  if (r.status && r.status !== S.sesi.status) { S.sesi.status = r.status; updateBannerTutup(); renderList(); }
+  if (r.ver) S.ver = r.ver;
+  if (r.sama || !r.absen) return;
+  var ids = {}, berubah = false;
+  Object.keys(r.absen).forEach(function (k) { ids[k] = 1; });
+  Object.keys(S.absen).forEach(function (k) { ids[k] = 1; });
+  Object.keys(ids).forEach(function (id) {
+    if (S.pending[id]) return;
+    var v = r.absen[id] || '';
+    if ((S.absen[id] || '') !== v) { S.absen[id] = v; berubah = true; }
+  });
+  if (berubah) renderList();
+}
+function sinkron() {
+  if (!S.sesi || S.syncing || S.saving || document.visibilityState === 'hidden') return;
+  S.syncing = true;
+  var sesiId = S.sesi.id, c0 = S.saveCount;
+  call('sinkron', S.pin, sesiId, S.ver).then(function (r) {
+    if (!S.sesi || S.sesi.id !== sesiId) return;
+    if (S.saveCount !== c0) { S.ver = null; return; }   // ada penyimpanan di tengah jalan: ambil ulang berikutnya
+    terapkanServer(r); setSyncInfo(true);
+  }).catch(function (e) { setSyncInfo(false, e.message); })
+    .then(function () { S.syncing = false; });
+}
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') sinkron(); });
+
 function bolehUbah() { return S.sesi && (S.sesi.status !== 'Ditutup' || S.petugas.admin); }
 
 /* ---------- daftar ---------- */
 function renderSeg() {
   Array.prototype.forEach.call($('segJK').querySelectorAll('button'), function (b) { b.classList.toggle('on', b.getAttribute('data-jk') === S.jk); });
 }
-function visibleJamaah() { return S.jamaah.filter(function (j) { return j.jk === S.jk; }); }
+function visibleJamaah() { return S.jk === 'S' ? S.jamaah : S.jamaah.filter(function (j) { return j.jk === S.jk; }); }
 function renderStats() {
-  var v = visibleJamaah(), h = 0, i = 0;
-  v.forEach(function (j) { var s = S.absen[j.id]; if (s === STATUS_H) h++; else if (s === STATUS_I) i++; });
-  $('nHadir').textContent = h; $('nIzin').textContent = i; $('nBelum').textContent = v.length - h - i;
-  var t = { L: [0, 0], P: [0, 0] };
-  S.jamaah.forEach(function (j) { t[j.jk][1]++; if (S.absen[j.id] === STATUS_H) t[j.jk][0]++; });
-  $('totalInfo').textContent = S.jamaah.length ? 'Total hadir — Pria ' + t.L[0] + '/' + t.L[1] + ' · Wanita ' + t.P[0] + '/' + t.P[1] : '';
-  $('saCount').textContent = S.jamaah.length ? 'Hadir: Pria ' + t.L[0] + '/' + t.L[1] + ' · Wanita ' + t.P[0] + '/' + t.P[1] : '';
+  // t[jk] = [hadir, izin, total]
+  var t = { L: [0, 0, 0], P: [0, 0, 0] };
+  S.jamaah.forEach(function (j) {
+    var s = S.absen[j.id]; t[j.jk][2]++;
+    if (s === STATUS_H) t[j.jk][0]++; else if (s === STATUS_I) t[j.jk][1]++;
+  });
+  var h = t.L[0] + t.P[0], i = t.L[1] + t.P[1], n = t.L[2] + t.P[2];
+  $('nHadir').textContent = h; $('nIzin').textContent = i; $('nBelum').textContent = n - h - i;
+  var rinci = function (k, nm) { return nm + ': ' + t[k][0] + ' hadir · ' + t[k][1] + ' izin · ' + (t[k][2] - t[k][0] - t[k][1]) + ' belum'; };
+  var duaBagian = S.petugas && S.petugas.bagian === 'Semua';
+  $('totalInfo').textContent = n && duaBagian ? rinci('L', 'Pria') + '  |  ' + rinci('P', 'Wanita') : '';
+  $('segS').textContent = n ? '(' + h + '/' + n + ')' : '';
+  $('segL').textContent = n ? '(' + t.L[0] + '/' + t.L[2] + ')' : '';
+  $('segP').textContent = n ? '(' + t.P[0] + '/' + t.P[2] + ')' : '';
+  $('saCount').textContent = !n ? '' : (duaBagian ? 'Hadir ' + h + '/' + n + '  ·  Pria ' + t.L[0] + ' · Wanita ' + t.P[0]
+                                                 : 'Hadir ' + (S.petugas.bagian === 'L' ? 'Pria ' : 'Wanita ') + h + '/' + n);
 }
 function renderList() {
   renderStats();
@@ -362,7 +451,7 @@ function renderList() {
   $('list').innerHTML = items.map(function (j) {
     var s = S.absen[j.id] || '', cls = s === STATUS_H ? 'h' : (s === STATUS_I ? 'i' : '');
     return '<div class="it ' + cls + '" data-id="' + esc(j.id) + '"><div class="info"><div class="nm">' + esc(j.nama) + '</div>' +
-      '<div class="sub">' + (q && j.jk !== S.jk ? '<b>' + (j.jk === 'L' ? 'Pria' : 'Wanita') + '</b> · ' : '') + esc(j.lengkap && j.lengkap !== j.nama ? j.lengkap : j.id) +
+      '<div class="sub">' + ((S.jk === 'S' || (q && j.jk !== S.jk)) ? '<b>' + (j.jk === 'L' ? 'Pria' : 'Wanita') + '</b> · ' : '') + esc(j.lengkap && j.lengkap !== j.nama ? j.lengkap : j.id) +
       (j.ket && !/^menetap$/i.test(j.ket) ? '<span class="tag">' + esc(j.ket) + '</span>' : '') +
       (j.kecuali ? '<span class="tag">Dikecualikan</span>' : '') + '</div></div>' +
       '<button class="bh" data-st="Hadir"' + dis + '>Hadir</button><button class="bi" data-st="Izin"' + dis + '>Izin</button></div>';
@@ -373,11 +462,12 @@ function renderList() {
 function setStatus(id, status, metode) {
   if (!bolehUbah()) return;
   var cur = S.absen[id] || '';
-  var baru = (cur === status && metode !== 'QR') ? '' : status;   // tap lagi = batal
+  var dariScan = metode === 'Scan QR' || metode === 'Foto QR' || metode === 'Ketik ID';
+  var baru = (cur === status && !dariScan) ? '' : status;   // tap lagi = batal (hanya untuk tombol manual)
   S.absen[id] = baru;
   S.pending[id] = { id: id, status: baru, metode: metode || 'Manual' };
   renderList();
-  scheduleSave(metode === 'QR' ? 300 : 900);
+  scheduleSave(dariScan ? 300 : 900);
 }
 function scheduleSave(ms) { clearTimeout(S.timer); S.timer = setTimeout(flush, ms || 900); }
 function setSaveInfo(t, err) { var el = $('saveInfo'); el.textContent = t; el.classList.toggle('err', !!err); }
@@ -388,7 +478,9 @@ function flush() {
   var sesiId = S.sesi.id;
   call('simpan', S.pin, sesiId, batch).then(function (r) {
     batch.forEach(function (b) { var p = S.pending[b.id]; if (p && p.status === b.status) delete S.pending[b.id]; });
-    if (r.ditolak && r.ditolak.length) toast('Ditolak (tidak wajib absen / ID tidak dikenal): ' + r.ditolak.join(', '), 'warn', 4000);
+    S.saveCount++;
+    if (r.absen) terapkanServer({ ver: r.ver, absen: r.absen });   // sekalian sinkron hasil HP lain
+    if (r.ditolak && r.ditolak.length) toast('Ditolak (di luar bagian Anda / tidak wajib / ID tidak dikenal): ' + r.ditolak.join(', '), 'warn', 4000);
     setSaveInfo('Tersimpan ✓ ' + new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
   }).catch(function (e) {
     setSaveInfo('Gagal menyimpan (' + e.message + '). Mencoba lagi...', true);
@@ -403,7 +495,7 @@ window.addEventListener('beforeunload', function (e) {
 });
 
 /* ---------- scan QR ---------- */
-var qrLive = null, lastScan = { id: '', t: 0 };
+var qrLive = null, lastScan = { id: '', t: 0 }, scanLewatHistory = false;
 function libScanner() { return typeof Html5Qrcode !== 'undefined'; }
 function cariId(list, id) { for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return null; }
 var hist = [];
@@ -422,7 +514,8 @@ function showResult(kind, nama, sub, st, undoId) {
   $('srNm').textContent = nama; $('srSub').textContent = sub || ''; $('srSt').textContent = st;
   show($('srUndo'), !!undoId); $('srUndo').setAttribute('data-id', undoId || '');
 }
-function handleScanId(raw) {
+function handleScanId(raw, metode) {
+  metode = metode || 'Scan QR';
   var id = String(raw || '').trim().toUpperCase();
   if (!id) return;
   if (!S.sesi) { beep(false); showResult('err', 'Belum ada sesi hari ini', id, 'QR terbaca. Tekan "+ Buka Sesi Hari Ini" di atas, lalu scan lagi.'); return; }
@@ -431,15 +524,20 @@ function handleScanId(raw) {
   if (!j) {
     var o = cariId(S.lain, id);
     beep(false);
-    if (o) { showResult('warn', o.nama, id, 'Tidak wajib absen (Flag Absen = N) — tidak dicatat'); addHist(o.nama, 'tidak wajib'); }
+    if (o && !o.wajib) { showResult('warn', o.nama, id, 'Tidak wajib absen (Flag Absen = N) — tidak dicatat'); addHist(o.nama, 'tidak wajib'); }
+    else if (o) {
+      var nmB = o.jk === 'L' ? 'Pria' : 'Wanita';
+      showResult('warn', o.nama, id, 'Jamaah ' + nmB + ' — di luar bagian Anda. Arahkan ke petugas ' + nmB.toLowerCase() + ' — tidak dicatat');
+      addHist(o.nama, 'bagian lain');
+    }
     else { showResult('err', 'QR tidak dikenal', id, 'ID tidak ada di tab Jamaah. Jamaah baru? Tunggu ±5 menit lalu muat ulang halaman.'); }
     return;
   }
   // jamaah pria/wanita bisa dicatat petugas mana pun; tab daftar tidak berpindah supaya petugas tidak bingung
   var sub = (j.lengkap && j.lengkap !== j.nama ? j.lengkap + ' · ' : '') + (j.jk === 'L' ? 'Pria' : 'Wanita');
-  var lbl = j.jk === S.jk ? '' : ' (' + (j.jk === 'L' ? 'Pria' : 'Wanita') + ')';
+  var lbl = (S.jk === 'S' || j.jk !== S.jk) ? ' (' + (j.jk === 'L' ? 'Pria' : 'Wanita') + ')' : '';
   if (S.absen[id] === STATUS_H) { beep(true); showResult('dup', j.nama, sub, 'Sudah tercatat HADIR sebelumnya'); addHist(j.nama, 'sudah hadir'); return; }
-  setStatus(id, STATUS_H, 'QR');
+  setStatus(id, STATUS_H, metode);
   beep(true);
   showResult('ok', j.nama, sub, 'HADIR ✓  tersimpan otomatis', id);
   addHist(j.nama + lbl, 'Hadir');
@@ -460,9 +558,12 @@ function startLive() {
   if (!libScanner()) { toast('Scanner belum termuat. Gunakan pencarian nama.', 'warn', 3500); return; }
   if (!S.sesi) { toast('Belum ada sesi. Tekan "+ Buka Sesi Hari Ini" dulu.', 'warn', 3500); return; }
   bukaLayarScan(true);
+  if (!scanLewatHistory) { history.pushState({ v: 'scan' }, '', '#scan'); scanLewatHistory = true; }
   show($('reader'), true);
   qrLive = new Html5Qrcode('reader');
-  var cfg = { fps: 10, qrbox: { width: 230, height: 230 } };
+  // kamera persegi + kotak bidik 70% dari lebar tampilan, dihitung oleh library -> selalu sejajar
+  var cfg = { fps: 10, aspectRatio: 1.0,
+              qrbox: function (w, h) { var m = Math.max(160, Math.floor(Math.min(w, h) * 0.7)); return { width: m, height: m }; } };
   var q = qrLive;
   q.start({ facingMode: 'environment' }, cfg, onScan, function () {})
     .catch(function () {   // sebagian HP menolak facingMode: coba pilih kamera belakang dari daftar
@@ -478,6 +579,7 @@ function startLive() {
       if (qrLive === q) qrLive = null;
       show($('reader'), false);
       bukaLayarScan(false);
+      if (scanLewatHistory) { scanLewatHistory = false; history.back(); }
       var diAppsScript = !!(window.google && google.script && google.script.run);
       toast(diAppsScript ? 'Kamera diblokir di halaman Apps Script. Pakai link versi scan (GitHub Pages) atau "Scan dari Foto".'
                          : 'Kamera tidak bisa dibuka: ' + (err && err.message || err) + '. Cek izin kamera di browser.', 'warn', 6000);
@@ -485,6 +587,7 @@ function startLive() {
     });
 }
 function stopLive() {
+  if (scanLewatHistory) { scanLewatHistory = false; history.back(); return; }   // popstate akan memanggil stopLive lagi
   var q = qrLive; qrLive = null;
   $('btnScan').textContent = '📷 Scan QR'; show($('reader'), false);
   bukaLayarScan(false);
@@ -494,7 +597,7 @@ function scanFoto(file) {
   if (!file) return;
   if (!libScanner()) { toast('Scanner belum termuat. Gunakan pencarian nama.', 'warn', 3500); return; }
   var h = new Html5Qrcode('readerFile');
-  h.scanFile(file, false).then(function (text) { handleScanId(text); })
+  h.scanFile(file, false).then(function (text) { handleScanId(text, 'Foto QR'); })
     .catch(function () { beep(false); toast('QR tidak terbaca. Foto lebih dekat & terang.', 'err', 3500); })
     .then(function () { try { h.clear(); } catch (e) {} });
 }
@@ -524,6 +627,7 @@ function bukaKartu() {
   call('kartu', S.pin).then(function (r) {
     S.kartu = r.jamaah; S.kelompokKartu = r.namaKelompok;
     show($('vAbsen'), false); show($('vKartu'), true); renderKartu();
+    history.pushState({ v: 'kartu' }, '', '#kartu'); window.scrollTo(0, 0);
   }).catch(function (e) { toast(e.message, 'err', 4000); });
 }
 function qrImg(text) { var q = qrcode(0, 'M'); q.addData(text); q.make(); return q.createImgTag(5, 8); }
@@ -545,7 +649,11 @@ $('selSesi').onchange = function () {
   var id = this.value; stopLive();
   if (Object.keys(S.pending).length) { flush(); setTimeout(function () { loadSesi(id); }, 1200); } else loadSesi(id);
 };
-$('segJK').onclick = function (e) { var b = e.target.closest('button'); if (!b) return; S.jk = b.getAttribute('data-jk'); renderSeg(); renderList(); };
+$('segJK').onclick = function (e) {
+  var b = e.target.closest('button'); if (!b) return;
+  S.jk = b.getAttribute('data-jk'); try { localStorage.setItem('absen_bbk02_jk', S.jk); } catch (x) {}
+  renderSeg(); renderList();
+};
 $('chips').onclick = function (e) {
   var b = e.target.closest('button'); if (!b) return;
   S.filter = b.getAttribute('data-f');
@@ -557,7 +665,7 @@ $('q').addEventListener('keydown', function (e) {
   if (e.key !== 'Enter') return;
   var v = this.value.trim().toUpperCase();
   var j = S.jamaah.filter(function (x) { return x.id === v; })[0];
-  if (j) { handleScanId(v); this.value = ''; S.q = ''; renderList(); }   // ID diketik / scanner Bluetooth
+  if (j) { handleScanId(v, 'Ketik ID'); this.value = ''; S.q = ''; renderList(); }   // ID diketik / scanner Bluetooth
 });
 $('list').onclick = function (e) {
   var b = e.target.closest('button'); if (!b) return;
@@ -578,12 +686,18 @@ $('btnTutup').onclick = tutupSesi;
 $('btnKartu').onclick = bukaKartu;
 $('kartuJK').onchange = renderKartu;
 $('btnPrint').onclick = function () { window.print(); };
-$('btnKembali').onclick = function () { show($('vKartu'), false); show($('vAbsen'), true); };
+function tutupKartu() { show($('vKartu'), false); show($('vAbsen'), true); }
+$('btnKembali').onclick = function () { if (history.state && history.state.v === 'kartu') history.back(); else tutupKartu(); };
+// Tombol Back browser/HP: tutup Kartu QR atau layar scan, bukan keluar dari aplikasi
+window.addEventListener('popstate', function () {
+  if (!$('vKartu').classList.contains('hide')) tutupKartu();
+  if (qrLive || $('scanArea').classList.contains('full')) { scanLewatHistory = false; stopLive(); renderList(); }
+});
 
 (function start() {
-  var saved = null;
-  try { saved = sessionStorage.getItem('absen_pin'); } catch (e) {}
-  if (saved) doLogin(saved);
+  if (location.hash) history.replaceState({ v: 'absen' }, '', location.pathname + location.search);
+  var saved = ambilLogin();
+  if (saved) { show($('vLogin'), false); show($('vLoading'), true); doLogin(saved); }
 })();
 </script>
 </body>
