@@ -15,7 +15,7 @@
    - **Flag Absen** (kolom J): `Y` = wajib absen, masuk daftar dan dihitung. `N` = tidak wajib, tidak muncul dan tidak dihitung.
    - **Status Keberadaan**: hanya ditampilkan sebagai label, misalnya "Mondok" atau "Kerja Luar".
 7. Menu **Absensi → 2. Cek data Jamaah** untuk melihat laporan ID kosong/ganda, Flag selain Y/N, dan data yang tidak konsisten.
-8. Tab **Petugas**: ganti PIN contoh (123456 / 111111 / 222222). Isi **Bagian** `L` atau `P` untuk petugas, dan **Peran** `Admin` untuk pengurus.
+8. Tab **Petugas**: ganti PIN contoh (123456 / 111111 / 222222). Kolom **Bagian** (`L`/`P`/`Semua`) hanya menentukan **tampilan awal** daftar. Semua petugas tetap bisa mencatat jamaah pria maupun wanita, sehingga bisa saling bantu. Isi **Peran** `Admin` untuk pengurus.
 9. Tab **Pengaturan**: sudah terisi Nama Kelompok *BBK02*, Hari *Senin, Jumat*, dan ID file sensus. Atur Ambang Kurang %, Ambang Perhatian %, dan Izin Dihitung Hadir sesuai kebutuhan.
    - Perubahan di tab Jamaah terbaca otomatis paling lambat **5 menit** (ada cache supaya scan cepat). Untuk memuat seketika, pakai menu **2. Cek data Jamaah**.
 10. Di Apps Script: **Deploy → Deployment baru → Jenis: Aplikasi web**
@@ -30,7 +30,7 @@
 | Siapa | Kapan | Apa |
 |---|---|---|
 | Sistem | ±05:00 di hari pengajian | Sesi dibuat otomatis |
-| Petugas Pria & Wanita | Saat pengajian | Buka link → PIN → scan QR atau tekan **Hadir**/**Izin**. Tersimpan otomatis. |
+| Petugas Pria & Wanita | Saat pengajian | Buka link → PIN → scan QR atau tekan **Hadir**/**Izin**. Tersimpan otomatis. Petugas boleh saling bantu men-scan jamaah pria maupun wanita, dan kolom cari mencari keduanya. |
 | Sistem | ±01:00 esok harinya | Sesi ditutup: yang tidak tercatat = **Alpa**, yang Dikecualikan = tidak dihitung |
 | Pengurus | Kapan saja | Tab **Dashboard_Absensi** → pilih Bulan Awal, Bulan Akhir, dan Jenis Kelamin |
 | Pengurus | Jika ada perubahan jamaah | Cukup ubah tab **Jamaah** (Flag Absen / jamaah baru). Berlaku di sesi berikutnya; riwayat lama tidak berubah. |
@@ -41,7 +41,7 @@ Tap **Hadir** sekali lagi untuk membatalkan. Admin tetap bisa mengoreksi sesi ya
 **Setelah QR di-scan**, panel besar menampilkan **Nama Absen**, Nama Lengkap, dan statusnya. Kehadiran **langsung tercatat**, dan ada tombol **Batalkan** jika salah scan. Warna panel:
 - 🟢 Hijau: HADIR, tersimpan
 - 🔵 Biru: sudah tercatat sebelumnya, tidak dobel
-- 🟠 Oranye: tidak wajib absen (Flag N) atau bagian lain (misalnya QR wanita di-scan petugas pria)
+- 🟠 Oranye: tidak wajib absen (Flag N)
 - 🔴 Merah: QR tidak dikenal
 
 Di bawah panel ada riwayat 5 scan terakhir.
@@ -72,3 +72,18 @@ Tab **Jamaah** tetap berada di file SENSUS BBK02 Dashboard, dan dikelola di sana
 - Hanya jamaah dengan **Flag Absen = Y** pada saat sesi ditutup yang masuk hitungan. Jika Flag diubah ke N (misalnya mulai mondok), sesi berikutnya tidak dihitung lagi, tetapi riwayat sebelumnya tetap ada.
 - Jika **Izin Dihitung Hadir = YA**, rumusnya menjadi `(Hadir + Izin) ÷ (Hadir + Izin + Alpa)`.
 - Kategori: **Kurang** < ambang kurang ≤ **Perlu Perhatian** < ambang perhatian ≤ **Baik**.
+
+## F. Susunan file & cara update (agar URL tidak pernah berubah)
+| File | Tempat | Isi |
+|---|---|---|
+| `Code.gs` | Apps Script | "Mesin": simpan absensi, baca data jamaah, dashboard |
+| `Index` | Apps Script | Tampilan, isinya **sama persis** dengan `index.html`. Wajib ada, tetapi tidak dipakai petugas. |
+| `index.html` | GitHub | Tampilan yang dipakai petugas (scan QR) |
+| `config.js` | GitHub | **Satu-satunya tempat link `/exec`.** Tidak perlu diubah saat revisi. |
+
+**Aturan update:**
+- **Revisi tampilan:** unggah ulang `index.html` ke GitHub saja. `config.js` tidak disentuh.
+- **Revisi `Code.gs`:** ganti isinya, lalu **Deploy → Kelola deployment → ✏️ Edit → Versi: Versi baru → Deploy.**
+  - **Jangan** memakai "Deployment baru", karena itu membuat URL baru.
+- Jika `Code.gs` lupa di-deploy ulang, web app menampilkan peringatan kuning **"Server masih versi lama"**. Di bagian bawah halaman juga tertulis *Versi aplikasi X · server Y*. Jika angkanya sama, berarti semua sudah terbaru.
+- Jika suatu saat URL memang berubah, cukup edit **satu baris di `config.js`** di GitHub.

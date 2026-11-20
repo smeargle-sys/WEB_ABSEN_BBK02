@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -7,6 +6,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Absensi Pengajian</title>
 <!-- Scanner QR & pembuat QR (dimuat dari CDN; jika gagal, absensi manual tetap jalan) -->
+<!-- config.js hanya ada di GitHub Pages: berisi link web app (/exec). Di Apps Script file ini memang tidak ada. -->
+<script src="config.js" onerror="void 0"></script>
 <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <style>
@@ -55,8 +56,22 @@
   .it.i .bi { background:#d69e2e; color:#fff; }
   .it button:disabled { opacity:.5; }
   #reader { width:100%; margin-top:10px; border-radius:10px; overflow:hidden; }
+  /* mode scan layar penuh */
+  .sa-top { display:none; }
+  #scanArea.full { position:fixed; inset:0; z-index:30; background:#0f1a10; overflow-y:auto;
+                   padding:calc(env(safe-area-inset-top) + 10px) 12px calc(env(safe-area-inset-bottom) + 12px); }
+  #scanArea.full .sa-top { display:flex; align-items:center; justify-content:space-between; gap:8px; color:#fff; }
+  #scanArea.full .sa-top b { font-size:17px; }
+  #scanArea.full .sa-top .sa-c { font-size:12px; opacity:.85; margin-top:2px; }
+  #scanArea.full .sa-top button { background:#fff; color:var(--g); padding:9px 14px; }
+  #scanArea.full #reader { margin-top:10px; max-height:52vh; background:#000; }
+  #scanArea.full #reader video { max-height:52vh; object-fit:cover; }
+  #scanArea.full .sr { margin-top:10px; }
+  #scanArea.full .hist { color:#c8d6c9; }
+  #scanArea.full .hist b { color:#fff; }
+  body.noscroll { overflow:hidden; }
   #toast { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); padding:12px 16px; border-radius:12px; color:#fff;
-           font-weight:600; max-width:92%; z-index:20; display:none; box-shadow:0 6px 20px rgba(0,0,0,.2); text-align:center; }
+           font-weight:600; max-width:92%; z-index:40; display:none; box-shadow:0 6px 20px rgba(0,0,0,.2); text-align:center; }
   #toast.ok { background:var(--g2); } #toast.err { background:var(--r); } #toast.warn { background:#b7791f; }
   .muted { color:var(--mut); font-size:13px; }
   .hide { display:none !important; }
@@ -92,12 +107,12 @@
 </style>
 </head>
 <body>
- 
+
 <header class="noprint">
   <div class="t" id="hTitle">Absensi Pengajian</div>
   <div class="s"><span id="hUser"></span><a href="#" id="btnLogout" class="hide">Keluar</a></div>
 </header>
- 
+
 <main>
   <!-- LOGIN -->
   <section id="vLogin">
@@ -109,47 +124,55 @@
       <p class="muted" id="loginMsg"></p>
     </div>
   </section>
- 
+
   <!-- ABSENSI -->
   <section id="vAbsen" class="hide">
     <div class="card">
       <label class="l" for="selSesi">Sesi pengajian</label>
       <select id="selSesi"></select>
-      <button class="btn2 btn-w hide" id="btnBukaSesi" style="margin-top:8px">+ Buka Sesi Hari Ini</button>
-      <div id="segJK" class="seg hide" style="margin-top:10px">
+      <button class="btn btn-w hide" id="btnBukaSesi" style="margin-top:8px">+ Buka Sesi Hari Ini</button>
+      <div id="segJK" class="seg" style="margin-top:10px">
         <button data-jk="L">Pria</button><button data-jk="P">Wanita</button>
       </div>
     </div>
- 
+
+    <div id="bannerVersi" class="banner warn hide"></div>
     <div id="bannerTutup" class="banner warn hide"></div>
- 
+
     <div class="card">
       <div class="stats">
         <div><b id="nHadir">0</b><span>Hadir</span></div>
         <div><b id="nIzin">0</b><span>Izin</span></div>
         <div><b id="nBelum">0</b><span>Belum</span></div>
       </div>
+      <div class="muted center" id="totalInfo" style="margin-top:8px"></div>
       <div class="save" id="saveInfo"></div>
     </div>
- 
+
     <div class="card" id="cardScan">
       <div class="row2">
         <button class="btn" id="btnScan">📷 Scan QR</button>
         <button class="btn2" id="btnFoto">🖼️ Scan dari Foto</button>
       </div>
       <input type="file" id="fotoInput" accept="image/*" capture="environment" class="hide">
-      <div id="reader" class="hide"></div>
       <div id="readerFile" class="hide"></div>
-      <div id="scanRes" class="sr hide">
-        <div class="sr-ic" id="srIc">✓</div>
-        <div class="sr-body"><div class="sr-nm" id="srNm"></div><div class="sr-sub" id="srSub"></div><div class="sr-st" id="srSt"></div></div>
-        <button class="btn2 hide" id="srUndo">Batalkan</button>
+      <div id="scanArea">
+        <div class="sa-top">
+          <div><b>Scan QR</b><div class="sa-c" id="saCount"></div></div>
+          <button id="btnTutupScan">✕ Tutup</button>
+        </div>
+        <div id="reader" class="hide"></div>
+        <div id="scanRes" class="sr hide">
+          <div class="sr-ic" id="srIc">✓</div>
+          <div class="sr-body"><div class="sr-nm" id="srNm"></div><div class="sr-sub" id="srSub"></div><div class="sr-st" id="srSt"></div></div>
+          <button class="btn2 hide" id="srUndo">Batalkan</button>
+        </div>
+        <div class="hist" id="scanHist"></div>
       </div>
-      <div class="hist" id="scanHist"></div>
       <p class="muted" style="margin:8px 0 0"><b>Scan dari Foto</b> = cadangan jika kamera live tidak bisa dibuka: kamera HP memotret kartu, lalu QR dibaca dari foto itu.<br>
       Jamaah lupa kartu? Cari namanya di bawah lalu tekan <b>Hadir</b>.</p>
     </div>
- 
+
     <div class="card">
       <input type="text" id="q" placeholder="Cari nama (atau scanner Bluetooth → Enter)" autocomplete="off">
       <div class="chips" id="chips">
@@ -160,7 +183,7 @@
       </div>
       <div class="list" id="list"></div>
     </div>
- 
+
     <div class="card hide" id="cardAdmin">
       <b>Menu Admin</b>
       <div class="row2" style="margin-top:10px">
@@ -169,8 +192,9 @@
       </div>
       <p class="muted" style="margin:8px 0 0">Sesi juga ditutup otomatis setiap dini hari (yang tidak tercatat = Alpa).</p>
     </div>
+    <p class="muted center" id="versiInfo"></p>
   </section>
- 
+
   <!-- KARTU QR -->
   <section id="vKartu" class="hide">
     <div class="card noprint">
@@ -184,25 +208,26 @@
     <div class="kartu-grid" id="kartuGrid"></div>
   </section>
 </main>
- 
+
 <div id="toast"></div>
- 
+
 <script>
 /* ===================== KONFIGURASI =====================
- * API_URL hanya diisi jika file ini di-hosting DI LUAR Apps Script
- * (mis. GitHub Pages, agar kamera live bisa dipakai). Isi dengan URL
- * web app Apps Script (.../exec). Jika dibuka dari Apps Script, biarkan kosong.
+ * File ini SAMA untuk Apps Script (nama "Index") dan GitHub Pages (nama "index.html").
+ * Link web app (/exec) TIDAK ditulis di sini, tetapi di file config.js (khusus GitHub):
+ *   window.ABSEN_CONFIG = { API_URL: 'https://script.google.com/macros/s/..../exec' };
  */
-var API_URL = 'https://script.google.com/macros/s/AKfycbw_qA6FotuiUx3-3nZOXv9WCpx7tpKNCGs2pCWz2AT5st97wRhsVcCRI5XkN89r79DR/exec';
- 
+var API_URL = (window.ABSEN_CONFIG && window.ABSEN_CONFIG.API_URL) || '';
+var VERSI_APP = 4;   // versi tampilan; server (Code.gs) minimal harus versi ini
+
 var STATUS_H = 'Hadir', STATUS_I = 'Izin';
 var S = { pin: null, petugas: null, kelompok: '', today: '', sesiList: [], sesi: null, jamaah: [], lain: [], absen: {},
           pending: {}, saving: false, timer: null, jk: 'L', filter: 'semua', q: '', kartu: [] };
- 
+
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function show(el, on) { el.classList.toggle('hide', !on); }
- 
+
 /* ---------- panggilan server (Apps Script atau fetch ke API_URL) ---------- */
 function call(fn) {
   var args = Array.prototype.slice.call(arguments, 1);
@@ -214,12 +239,12 @@ function call(fn) {
     });
   }
   if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/.test(API_URL))
-    return Promise.reject(new Error('API_URL belum diisi dengan benar (harus link web app .../exec)'));
+    return Promise.reject(new Error('Link web app belum diatur. Periksa file config.js di GitHub (harus berisi link .../exec).'));
   return fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn: fn, args: args }) })
     .then(function (r) { return r.json(); })
     .then(function (j) { if (!j.ok) throw new Error(j.error); return j.data; });
 }
- 
+
 /* ---------- umpan balik ---------- */
 var toastT = null;
 function toast(msg, type, ms) {
@@ -237,12 +262,12 @@ function beep(ok) {
   } catch (e) {}
   try { if (navigator.vibrate) navigator.vibrate(ok ? 60 : [80, 60, 80]); } catch (e) {}
 }
- 
+
 /* ---------- login ---------- */
 function doLogin(pin) {
   $('btnLogin').disabled = true; $('loginMsg').textContent = 'Memeriksa...';
   call('login', pin).then(function (r) {
-    S.pin = pin; S.petugas = r.petugas; S.kelompok = r.namaKelompok;
+    S.pin = pin; S.petugas = r.petugas; S.kelompok = r.namaKelompok; S.versiServer = r.versiServer || 0;
     try { sessionStorage.setItem('absen_pin', pin); } catch (e) {}
     $('loginMsg').textContent = '';
     afterLogin();
@@ -257,8 +282,12 @@ function afterLogin() {
   show($('btnLogout'), true);
   show($('vLogin'), false); show($('vAbsen'), true);
   show($('cardAdmin'), S.petugas.admin);
+  $('versiInfo').textContent = 'Versi aplikasi ' + VERSI_APP + ' · server ' + (S.versiServer || 'lama');
+  if (S.versiServer < VERSI_APP) {
+    $('bannerVersi').textContent = '⚠️ Server masih versi lama (' + (S.versiServer || 'sebelum 4') + '). Admin: buka Apps Script → Deploy → Kelola deployment → ✏️ Edit → Versi baru → Deploy. URL tidak berubah.';
+    show($('bannerVersi'), true);
+  }
   S.jk = S.petugas.bagian === 'Semua' ? 'L' : S.petugas.bagian;
-  show($('segJK'), S.petugas.bagian === 'Semua');
   renderSeg();
   loadInit();
 }
@@ -267,7 +296,7 @@ function logout() {
   try { sessionStorage.removeItem('absen_pin'); } catch (e) {}
   location.reload();
 }
- 
+
 /* ---------- sesi ---------- */
 function loadInit(pilihId) {
   call('init', S.pin).then(function (r) {
@@ -279,7 +308,8 @@ function loadInit(pilihId) {
     var adaHariIni = S.sesiList.some(function (s) { return s.tanggal === S.today; });
     show($('btnBukaSesi'), !adaHariIni);
     var target = pilihId || (S.sesiList.filter(function (s) { return s.tanggal === S.today; })[0] || S.sesiList.filter(function (s) { return s.status !== 'Ditutup'; })[0] || S.sesiList[0] || {}).id;
-    if (target) { sel.value = target; loadSesi(target); } else { renderList(); }
+    if (target) { sel.value = target; loadSesi(target); }
+    else { S.sesi = null; S.jamaah = []; renderList(); show($('cardScan'), false); }
   }).catch(function (e) { toast(e.message, 'err', 4000); });
 }
 function bukaSesiHariIni() {
@@ -301,7 +331,7 @@ function loadSesi(id) {
   }).catch(function (e) { toast(e.message, 'err', 4000); $('list').innerHTML = ''; });
 }
 function bolehUbah() { return S.sesi && (S.sesi.status !== 'Ditutup' || S.petugas.admin); }
- 
+
 /* ---------- daftar ---------- */
 function renderSeg() {
   Array.prototype.forEach.call($('segJK').querySelectorAll('button'), function (b) { b.classList.toggle('on', b.getAttribute('data-jk') === S.jk); });
@@ -311,12 +341,17 @@ function renderStats() {
   var v = visibleJamaah(), h = 0, i = 0;
   v.forEach(function (j) { var s = S.absen[j.id]; if (s === STATUS_H) h++; else if (s === STATUS_I) i++; });
   $('nHadir').textContent = h; $('nIzin').textContent = i; $('nBelum').textContent = v.length - h - i;
+  var t = { L: [0, 0], P: [0, 0] };
+  S.jamaah.forEach(function (j) { t[j.jk][1]++; if (S.absen[j.id] === STATUS_H) t[j.jk][0]++; });
+  $('totalInfo').textContent = S.jamaah.length ? 'Total hadir — Pria ' + t.L[0] + '/' + t.L[1] + ' · Wanita ' + t.P[0] + '/' + t.P[1] : '';
+  $('saCount').textContent = S.jamaah.length ? 'Hadir: Pria ' + t.L[0] + '/' + t.L[1] + ' · Wanita ' + t.P[0] + '/' + t.P[1] : '';
 }
 function renderList() {
   renderStats();
   if (!S.sesi) { $('list').innerHTML = '<p class="muted center">Belum ada sesi. Tekan "Buka Sesi Hari Ini".</p>'; return; }
   var q = S.q.trim().toLowerCase(), dis = bolehUbah() ? '' : ' disabled';
-  var items = visibleJamaah().filter(function (j) {
+  var basis = q ? S.jamaah : visibleJamaah();   // saat mencari: cari di pria & wanita sekaligus
+  var items = basis.filter(function (j) {
     var s = S.absen[j.id] || '';
     if (S.filter === 'belum' && s) return false;
     if (S.filter === 'hadir' && s !== STATUS_H) return false;
@@ -327,13 +362,13 @@ function renderList() {
   $('list').innerHTML = items.map(function (j) {
     var s = S.absen[j.id] || '', cls = s === STATUS_H ? 'h' : (s === STATUS_I ? 'i' : '');
     return '<div class="it ' + cls + '" data-id="' + esc(j.id) + '"><div class="info"><div class="nm">' + esc(j.nama) + '</div>' +
-      '<div class="sub">' + esc(j.lengkap && j.lengkap !== j.nama ? j.lengkap : j.id) +
+      '<div class="sub">' + (q && j.jk !== S.jk ? '<b>' + (j.jk === 'L' ? 'Pria' : 'Wanita') + '</b> · ' : '') + esc(j.lengkap && j.lengkap !== j.nama ? j.lengkap : j.id) +
       (j.ket && !/^menetap$/i.test(j.ket) ? '<span class="tag">' + esc(j.ket) + '</span>' : '') +
       (j.kecuali ? '<span class="tag">Dikecualikan</span>' : '') + '</div></div>' +
       '<button class="bh" data-st="Hadir"' + dis + '>Hadir</button><button class="bi" data-st="Izin"' + dis + '>Izin</button></div>';
   }).join('');
 }
- 
+
 /* ---------- ubah status & simpan otomatis ---------- */
 function setStatus(id, status, metode) {
   if (!bolehUbah()) return;
@@ -353,7 +388,7 @@ function flush() {
   var sesiId = S.sesi.id;
   call('simpan', S.pin, sesiId, batch).then(function (r) {
     batch.forEach(function (b) { var p = S.pending[b.id]; if (p && p.status === b.status) delete S.pending[b.id]; });
-    if (r.ditolak && r.ditolak.length) toast('Ditolak (bukan bagian Anda / ID tidak dikenal): ' + r.ditolak.join(', '), 'warn', 4000);
+    if (r.ditolak && r.ditolak.length) toast('Ditolak (tidak wajib absen / ID tidak dikenal): ' + r.ditolak.join(', '), 'warn', 4000);
     setSaveInfo('Tersimpan ✓ ' + new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
   }).catch(function (e) {
     setSaveInfo('Gagal menyimpan (' + e.message + '). Mencoba lagi...', true);
@@ -366,7 +401,7 @@ function flush() {
 window.addEventListener('beforeunload', function (e) {
   if (Object.keys(S.pending).length) { e.preventDefault(); e.returnValue = ''; }
 });
- 
+
 /* ---------- scan QR ---------- */
 var qrLive = null, lastScan = { id: '', t: 0 };
 function libScanner() { return typeof Html5Qrcode !== 'undefined'; }
@@ -390,22 +425,24 @@ function showResult(kind, nama, sub, st, undoId) {
 function handleScanId(raw) {
   var id = String(raw || '').trim().toUpperCase();
   if (!id) return;
+  if (!S.sesi) { beep(false); showResult('err', 'Belum ada sesi hari ini', id, 'QR terbaca. Tekan "+ Buka Sesi Hari Ini" di atas, lalu scan lagi.'); return; }
+  if (!S.jamaah.length && !S.lain.length) { beep(false); showResult('err', 'Daftar jamaah belum termuat', id, 'Periksa koneksi, lalu muat ulang halaman.'); return; }
   var j = cariId(S.jamaah, id);
   if (!j) {
     var o = cariId(S.lain, id);
     beep(false);
-    if (o && !o.wajib) { showResult('warn', o.nama, id, 'Tidak wajib absen (Flag Absen = N) — tidak dicatat'); addHist(o.nama, 'tidak wajib'); }
-    else if (o) { showResult('warn', o.nama, id, 'Bagian ' + (o.jk === 'L' ? 'Pria' : 'Wanita') + ' — arahkan ke petugas ' + (o.jk === 'L' ? 'pria' : 'wanita')); addHist(o.nama, 'bagian lain'); }
-    else { showResult('err', 'QR tidak dikenal', id, 'ID tidak ada di data Jamaah'); }
+    if (o) { showResult('warn', o.nama, id, 'Tidak wajib absen (Flag Absen = N) — tidak dicatat'); addHist(o.nama, 'tidak wajib'); }
+    else { showResult('err', 'QR tidak dikenal', id, 'ID tidak ada di tab Jamaah. Jamaah baru? Tunggu ±5 menit lalu muat ulang halaman.'); }
     return;
   }
-  if (j.jk !== S.jk) { S.jk = j.jk; renderSeg(); }   // hanya terjadi untuk petugas bagian "Semua"
+  // jamaah pria/wanita bisa dicatat petugas mana pun; tab daftar tidak berpindah supaya petugas tidak bingung
   var sub = (j.lengkap && j.lengkap !== j.nama ? j.lengkap + ' · ' : '') + (j.jk === 'L' ? 'Pria' : 'Wanita');
+  var lbl = j.jk === S.jk ? '' : ' (' + (j.jk === 'L' ? 'Pria' : 'Wanita') + ')';
   if (S.absen[id] === STATUS_H) { beep(true); showResult('dup', j.nama, sub, 'Sudah tercatat HADIR sebelumnya'); addHist(j.nama, 'sudah hadir'); return; }
   setStatus(id, STATUS_H, 'QR');
   beep(true);
   showResult('ok', j.nama, sub, 'HADIR ✓  tersimpan otomatis', id);
-  addHist(j.nama, 'Hadir');
+  addHist(j.nama + lbl, 'Hadir');
 }
 function onScan(text) {
   var now = Date.now(), id = String(text).trim().toUpperCase();
@@ -413,9 +450,16 @@ function onScan(text) {
   lastScan = { id: id, t: now };
   handleScanId(id);
 }
+function bukaLayarScan(on) {
+  $('scanArea').classList.toggle('full', on);
+  document.body.classList.toggle('noscroll', on);
+  if (on) $('scanArea').scrollTop = 0;
+}
 function startLive() {
   if (qrLive) return stopLive();
   if (!libScanner()) { toast('Scanner belum termuat. Gunakan pencarian nama.', 'warn', 3500); return; }
+  if (!S.sesi) { toast('Belum ada sesi. Tekan "+ Buka Sesi Hari Ini" dulu.', 'warn', 3500); return; }
+  bukaLayarScan(true);
   show($('reader'), true);
   qrLive = new Html5Qrcode('reader');
   var cfg = { fps: 10, qrbox: { width: 230, height: 230 } };
@@ -433,6 +477,7 @@ function startLive() {
       try { q.clear(); } catch (e) {}
       if (qrLive === q) qrLive = null;
       show($('reader'), false);
+      bukaLayarScan(false);
       var diAppsScript = !!(window.google && google.script && google.script.run);
       toast(diAppsScript ? 'Kamera diblokir di halaman Apps Script. Pakai link versi scan (GitHub Pages) atau "Scan dari Foto".'
                          : 'Kamera tidak bisa dibuka: ' + (err && err.message || err) + '. Cek izin kamera di browser.', 'warn', 6000);
@@ -442,6 +487,7 @@ function startLive() {
 function stopLive() {
   var q = qrLive; qrLive = null;
   $('btnScan').textContent = '📷 Scan QR'; show($('reader'), false);
+  bukaLayarScan(false);
   if (q) q.stop().then(function () { q.clear(); }).catch(function () {});
 }
 function scanFoto(file) {
@@ -452,7 +498,7 @@ function scanFoto(file) {
     .catch(function () { beep(false); toast('QR tidak terbaca. Foto lebih dekat & terang.', 'err', 3500); })
     .then(function () { try { h.clear(); } catch (e) {} });
 }
- 
+
 /* ---------- admin ---------- */
 var tutupArmed = false;
 function tutupSesi() {
@@ -489,14 +535,14 @@ function renderKartu() {
       '<div class="ki">' + esc(j.id) + '</div></div>';
   }).join('') || '<p class="muted">Belum ada jamaah ber-ID.</p>';
 }
- 
+
 /* ---------- event ---------- */
 $('btnLogin').onclick = function () { var p = $('pin').value.trim(); if (p) doLogin(p); };
 $('pin').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('btnLogin').click(); });
 $('btnLogout').onclick = function (e) { e.preventDefault(); logout(); };
 $('btnBukaSesi').onclick = bukaSesiHariIni;
 $('selSesi').onchange = function () {
-  var id = this.value;
+  var id = this.value; stopLive();
   if (Object.keys(S.pending).length) { flush(); setTimeout(function () { loadSesi(id); }, 1200); } else loadSesi(id);
 };
 $('segJK').onclick = function (e) { var b = e.target.closest('button'); if (!b) return; S.jk = b.getAttribute('data-jk'); renderSeg(); renderList(); };
@@ -518,6 +564,7 @@ $('list').onclick = function (e) {
   var it = b.closest('.it'); setStatus(it.getAttribute('data-id'), b.getAttribute('data-st'), 'Manual');
 };
 $('btnScan').onclick = startLive;
+$('btnTutupScan').onclick = function () { stopLive(); renderList(); };
 $('btnFoto').onclick = function () { stopLive(); $('fotoInput').click(); };
 $('fotoInput').onchange = function () { scanFoto(this.files[0]); this.value = ''; };
 $('srUndo').onclick = function () {
@@ -532,7 +579,7 @@ $('btnKartu').onclick = bukaKartu;
 $('kartuJK').onchange = renderKartu;
 $('btnPrint').onclick = function () { window.print(); };
 $('btnKembali').onclick = function () { show($('vKartu'), false); show($('vAbsen'), true); };
- 
+
 (function start() {
   var saved = null;
   try { saved = sessionStorage.getItem('absen_pin'); } catch (e) {}
@@ -541,4 +588,3 @@ $('btnKembali').onclick = function () { show($('vKartu'), false); show($('vAbsen
 </script>
 </body>
 </html>
- 

@@ -53,6 +53,10 @@ const HDR = {
 // indeks kolom tab Absensi (0-based)
 const AX = { KEY: 0, SESI: 1, TGL: 2, ID: 3, NAMA: 4, JK: 5, STATUS: 6, METODE: 7, PETUGAS: 8, WAKTU: 9 };
 
+// Naikkan angka ini setiap kali Code.gs diubah. Web app akan memperingatkan jika server masih versi lama
+// (artinya lupa: Deploy -> Kelola deployment -> Edit -> Versi baru).
+const VERSI_SERVER = 4;
+
 const SENSUS_ID_DEFAULT = '1jgTL5COMzaDnvnnOTL_0DhQOlycHFaSS7HavLhR7IW0'; // file "SENSUS BBK02 Dashboard"
 
 const DEFAULT_SET = [
@@ -440,7 +444,6 @@ function simpanAbsen_(sesi, changes, petugas) {
     const c = perId[id];
     const j = master[id];
     if (!j || j.status === 'Nonaktif') { ditolak.push(id); return; }
-    if (petugas.bagian !== 'Semua' && j.jk !== petugas.bagian) { ditolak.push(id); return; }
     let status = (c.status === ST.H || c.status === ST.I) ? c.status : '';
     if (!status && sesi.status === SESI_TUTUP) status = j.status === 'Dikecualikan' ? ST.X : ST.A; // koreksi admin
     const metode = c.metode === 'QR' ? 'QR' : 'Manual';
@@ -463,7 +466,7 @@ function simpanAbsen_(sesi, changes, petugas) {
 const API = {
   login: function (pin) {
     const p = auth_(pin);
-    return { petugas: p, namaKelompok: getSettings_().namaKelompok };
+    return { petugas: p, namaKelompok: getSettings_().namaKelompok, versiServer: VERSI_SERVER };
   },
   init: function (pin) {
     const p = auth_(pin);
@@ -478,13 +481,14 @@ const API = {
     const p = auth_(pin);
     const s = getSesiList_().find(x => x.id === sesiId);
     if (!s) throw new Error('Sesi tidak ditemukan');
+    // Semua petugas boleh mencatat jamaah pria & wanita (saling bantu). "Bagian" hanya tampilan awal.
     const semua = getMaster_().filter(j => j.id && j.jk);
     const jamaah = semua
-      .filter(j => j.status !== 'Nonaktif' && (p.bagian === 'Semua' || j.jk === p.bagian))
+      .filter(j => j.status !== 'Nonaktif')
       .sort((a, b) => a.nama.localeCompare(b.nama, 'id'))
       .map(j => ({ id: j.id, nama: j.nama, lengkap: j.lengkap, jk: j.jk, ket: j.ket, kecuali: j.status === 'Dikecualikan' }));
-    // jamaah lain (tidak wajib / bagian lain) — hanya untuk menampilkan nama saat QR-nya di-scan
-    const lain = semua.filter(j => j.status === 'Nonaktif' || (p.bagian !== 'Semua' && j.jk !== p.bagian))
+    // jamaah tidak wajib (Flag N) — hanya untuk menampilkan nama saat QR-nya di-scan
+    const lain = semua.filter(j => j.status === 'Nonaktif')
       .map(j => ({ id: j.id, nama: j.nama, jk: j.jk, wajib: j.status !== 'Nonaktif' }));
     const absen = {};
     readAbsen_().forEach(r => {
@@ -835,7 +839,8 @@ function setupAwal() {
     ]);
   }
   const nP = Math.max(sh.getMaxRows() - 1, 1);
-  sh.getRange(2, 3, nP, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['Semua', 'L', 'P'], true).build());
+  sh.getRange(2, 3, nP, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['Semua', 'L', 'P'], true)
+    .setHelpText('Tampilan awal daftar di web app (L = Pria, P = Wanita). Semua petugas tetap bisa mencatat pria & wanita.').build());
   sh.getRange(2, 4, nP, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['Petugas', 'Admin'], true).build());
   sh.getRange(2, 5, nP, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['Ya', 'Tidak'], true).build());
 
