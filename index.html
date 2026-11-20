@@ -32,7 +32,10 @@
   .seg button { flex:1; background:transparent; color:#374151; padding:8px 4px; font-size:14px; }
   .seg button span { font-weight:500; font-size:12px; opacity:.8; }
   .seg button.on { background:#fff; color:var(--g); box-shadow:0 1px 2px rgba(0,0,0,.12); }
-  .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; text-align:center; }
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; text-align:center; }
+  .stats div.tl { background:var(--y); }
+  .tag.telat { background:#fde68a; color:#7c5a00; font-weight:600; }
+  .sr.telat { background:var(--y); border-color:#d69e2e; } .sr.telat .sr-ic { background:#d69e2e; }
   .stats div { background:var(--gl); border-radius:10px; padding:8px 4px; }
   .stats b { display:block; font-size:22px; }
   .stats span { font-size:12px; color:var(--mut); }
@@ -174,6 +177,7 @@
       <div class="muted center" style="margin-bottom:6px"><b id="statJudul">Total Pria + Wanita</b></div>
       <div class="stats">
         <div><b id="nHadir">0</b><span>Hadir</span></div>
+        <div class="tl"><b id="nTelat">0</b><span>⏰ Terlambat</span></div>
         <div><b id="nIzin">0</b><span>Izin</span></div>
         <div><b id="nBelum">0</b><span>Belum</span></div>
       </div>
@@ -213,6 +217,7 @@
         <button data-f="semua" class="on">Semua</button>
         <button data-f="belum">Belum</button>
         <button data-f="hadir">Hadir</button>
+        <button data-f="telat">⏰ Telat</button>
         <button data-f="izin">Izin</button>
       </div>
       <div class="list" id="list"></div>
@@ -262,11 +267,11 @@
  *   window.ABSEN_CONFIG = { API_URL: 'https://script.google.com/macros/s/..../exec' };
  */
 var API_URL = (window.ABSEN_CONFIG && window.ABSEN_CONFIG.API_URL) || '';
-var VERSI_APP = 14;
+var VERSI_APP = 16;
 var SYNC_MS = 15000;   // sinkron antar-HP tiap 15 detik   // versi tampilan; server (Code.gs) minimal harus versi ini
 
 var STATUS_H = 'Hadir', STATUS_I = 'Izin';
-var S = { token: null, petugas: null, kelompok: '', today: '', sesiList: [], sesi: null, jamaah: [], lain: [], absen: {},
+var S = { token: null, telat: {}, petugas: null, kelompok: '', today: '', sesiList: [], sesi: null, jamaah: [], lain: [], absen: {},
           pending: {}, saving: false, timer: null, jk: 'L', filter: 'semua', q: '', kartu: [],
           ver: null, syncing: false, saveCount: 0, syncTimer: null, siap: false };
 
@@ -477,7 +482,7 @@ function loadSesi(id) {
     .catch(function (e) { toast(e.message, 'err', 4000); $('list').innerHTML = ''; });
 }
 function terapkanDataSesi(r) {
-  S.sesi = r.sesi; S.jamaah = r.jamaah; S.lain = r.lain || []; S.absen = r.absen; S.pending = {}; S.ver = r.ver || null;
+  S.sesi = r.sesi; S.jamaah = r.jamaah; S.lain = r.lain || []; S.absen = r.absen; S.telat = r.telat || {}; S.pending = {}; S.ver = r.ver || null;
   hist = []; renderHist(); show($('scanRes'), false);
   S.siap = true;
   updateBannerTutup();
@@ -536,10 +541,12 @@ function terapkanServer(r) {
   var ids = {}, berubah = false;
   Object.keys(r.absen).forEach(function (k) { ids[k] = 1; });
   Object.keys(S.absen).forEach(function (k) { ids[k] = 1; });
+  var tl = r.telat || {};
   Object.keys(ids).forEach(function (id) {
     if (S.pending[id]) return;
     var v = r.absen[id] || '';
     if ((S.absen[id] || '') !== v) { S.absen[id] = v; berubah = true; }
+    if ((S.telat[id] || 0) !== (tl[id] || 0)) { if (tl[id]) S.telat[id] = tl[id]; else delete S.telat[id]; berubah = true; }
   });
   if (berubah) renderList();
 }
@@ -571,7 +578,8 @@ function renderStats() {
     if (s === STATUS_H) t[j.jk][0]++; else if (s === STATUS_I) t[j.jk][1]++;
   });
   var h = t.L[0] + t.P[0], i = t.L[1] + t.P[1], n = t.L[2] + t.P[2];
-  $('nHadir').textContent = h; $('nIzin').textContent = i; $('nBelum').textContent = n - h - i;
+  var tl = 0; S.jamaah.forEach(function (j) { if (S.absen[j.id] === STATUS_H && S.telat[j.id]) tl++; });
+  $('nHadir').textContent = h; $('nTelat').textContent = tl; $('nIzin').textContent = i; $('nBelum').textContent = n - h - i;
   var rinci = function (k, nm) { return nm + ': ' + t[k][0] + ' hadir · ' + t[k][1] + ' izin · ' + (t[k][2] - t[k][0] - t[k][1]) + ' belum'; };
   var duaBagian = S.petugas && S.petugas.bagian === 'Semua';
   $('totalInfo').textContent = n && duaBagian ? rinci('L', 'Pria') + '  |  ' + rinci('P', 'Wanita') : '';
@@ -591,6 +599,7 @@ function renderList() {
     if (S.filter === 'belum' && s) return false;
     if (S.filter === 'hadir' && s !== STATUS_H) return false;
     if (S.filter === 'izin' && s !== STATUS_I) return false;
+    if (S.filter === 'telat' && !(s === STATUS_H && S.telat[j.id])) return false;
     return !q || j.nama.toLowerCase().indexOf(q) >= 0 || (j.lengkap || '').toLowerCase().indexOf(q) >= 0 || j.id.toLowerCase().indexOf(q) >= 0;
   });
   if (!items.length) { $('list').innerHTML = '<p class="muted center">Tidak ada data.</p>'; return; }
@@ -599,18 +608,31 @@ function renderList() {
     return '<div class="it ' + cls + '" data-id="' + esc(j.id) + '"><div class="info"><div class="nm">' + esc(j.nama) + '</div>' +
       '<div class="sub">' + ((S.jk === 'S' || (q && j.jk !== S.jk)) ? '<b>' + (j.jk === 'L' ? 'Pria' : 'Wanita') + '</b> · ' : '') + esc(j.lengkap && j.lengkap !== j.nama ? j.lengkap : j.id) +
       (j.ket && !/^menetap$/i.test(j.ket) ? '<span class="tag">' + esc(j.ket) + '</span>' : '') +
-      (j.kecuali ? '<span class="tag">Dikecualikan</span>' : '') + '</div></div>' +
+      (j.kecuali ? '<span class="tag">Dikecualikan</span>' : '') +
+      (s === STATUS_H && S.telat[j.id] ? '<span class="tag telat">⏰ Telat ' + S.telat[j.id] + ' mnt</span>' : '') + '</div></div>' +
       '<button class="bh" data-st="Hadir"' + dis + '>Hadir</button><button class="bi" data-st="Izin"' + dis + '>Izin</button></div>';
   }).join('');
 }
 
 /* ---------- ubah status & simpan otomatis ---------- */
+/** Perkiraan menit terlambat (jam HP, zona Jakarta). Nilai resmi dihitung server saat menyimpan. */
+function perkiraanTelat() {
+  var jd = S.jadwal || {};
+  if (!jd.batasTepat || !S.sesi || S.sesi.status === 'Ditutup' || S.sesi.tanggal !== S.today) return 0;
+  var jam;
+  try { jam = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()); }
+  catch (e) { var d = new Date(); jam = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
+  var m = function (x) { var p = x.split(':'); return (+p[0]) * 60 + (+p[1]); };
+  return Math.max(0, m(jam) - m(jd.batasTepat));
+}
 function setStatus(id, status, metode) {
   if (!bolehUbah()) return;
   var cur = S.absen[id] || '';
   var dariScan = metode === 'Scan QR' || metode === 'Foto QR' || metode === 'Ketik ID';
   var baru = (cur === status && !dariScan) ? '' : status;   // tap lagi = batal (hanya untuk tombol manual)
   S.absen[id] = baru;
+  var est = baru === STATUS_H ? perkiraanTelat() : 0;
+  if (est) S.telat[id] = est; else delete S.telat[id];
   S.pending[id] = { id: id, status: baru, metode: metode || 'Manual' };
   renderList();
   scheduleSave(dariScan ? 300 : 900);
@@ -625,7 +647,7 @@ function flush() {
   call('simpan', S.token, sesiId, batch).then(function (r) {
     batch.forEach(function (b) { var p = S.pending[b.id]; if (p && p.status === b.status) delete S.pending[b.id]; });
     S.saveCount++;
-    if (r.absen) terapkanServer({ ver: r.ver, absen: r.absen });   // sekalian sinkron hasil HP lain
+    if (r.absen) terapkanServer({ ver: r.ver, absen: r.absen, telat: r.telat });   // sekalian sinkron hasil HP lain
     if (r.ditolak && r.ditolak.length) toast('Ditolak (di luar bagian Anda / tidak wajib / ID tidak dikenal): ' + r.ditolak.join(', '), 'warn', 4000);
     else if (r.sudah && r.sudah.length) {
       var nm = r.sudah.map(function (id) { var j = cariId(S.jamaah, id); return j ? j.nama : id; });
@@ -667,7 +689,7 @@ function addHist(nama, st) {
 function showResult(kind, nama, sub, st, undoId) {
   var el = $('scanRes');
   el.className = 'sr ' + kind;
-  $('srIc').textContent = { ok: '✓', dup: '✓', warn: '!', err: '✕' }[kind];
+  $('srIc').textContent = { ok: '✓', dup: '✓', warn: '!', err: '✕', telat: '⏰' }[kind];
   $('srNm').textContent = nama; $('srSub').textContent = sub || ''; $('srSt').textContent = st;
   show($('srUndo'), !!undoId); $('srUndo').setAttribute('data-id', undoId || '');
 }
@@ -698,8 +720,14 @@ function handleScanId(raw, metode) {
   if (S.absen[id] === STATUS_H) { beep(true); showResult('dup', j.nama, sub, 'Sudah tercatat HADIR sebelumnya'); addHist(j.nama, 'sudah hadir'); return; }
   setStatus(id, STATUS_H, metode);
   beep(true);
-  showResult('ok', j.nama, sub, 'HADIR ✓  tersimpan otomatis', id);
-  addHist(j.nama + lbl, 'Hadir');
+  var mt = S.telat[id] || 0;
+  if (mt) {
+    showResult('telat', j.nama, sub, 'HADIR ✓ — TERLAMBAT ' + mt + ' menit (batas ' + S.jadwal.batasTepat + ')', id);
+    addHist(j.nama + lbl, 'Hadir, telat ' + mt + ' mnt');
+  } else {
+    showResult('ok', j.nama, sub, 'HADIR ✓  tepat waktu — tersimpan otomatis', id);
+    addHist(j.nama + lbl, 'Hadir');
+  }
 }
 function onScan(text) {
   var now = Date.now(), id = String(text).trim().toUpperCase();
