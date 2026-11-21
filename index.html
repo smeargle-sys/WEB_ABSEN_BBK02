@@ -117,7 +117,7 @@
   .banner.okb { background:var(--okbg); border-color:var(--okbd); color:#14532D; align-items:center; }
   .banner.okb .btn { padding:8px 12px; font-size:13px; flex:none; }
   .ket-row { display:flex; gap:6px; }
-  .ket-row input { flex:1; min-width:0; }
+  .ket-row select { flex:1; min-width:0; }
   .ket-row button { flex:none; padding:9px 14px; }
   .ket-row button:disabled { opacity:.45; }
   .kosong { padding:24px 0; text-align:center; color:var(--mut); font-size:13px; }
@@ -240,8 +240,8 @@
   <section id="vAbsen" class="hide">
     <div class="card">
       <div id="bukaBox" class="hide" style="margin-bottom:12px">
-        <label class="l" for="ketBaru">Keterangan / info pengajian hari ini (opsional)</label>
-        <input type="text" id="ketBaru" list="ketList" maxlength="100" placeholder="mis. Pengajian Lansia, ASAD, Remaja" autocomplete="off">
+        <label class="l" for="ketBaru">Keterangan / info pengajian hari ini</label>
+        <select id="ketBaru"></select>
         <button class="btn btn-w" id="btnBukaSesi" style="margin-top:8px"><span data-ic="plus"></span>Buka Sesi Hari Ini</button>
       </div>
       <label class="l" for="selSesi" id="lblSesi">Sesi pengajian</label>
@@ -250,11 +250,10 @@
       <div id="ketBox" class="hide" style="margin-top:8px">
         <label class="l" for="ketSesi">Keterangan / info pengajian sesi ini</label>
         <div class="ket-row">
-          <input type="text" id="ketSesi" list="ketList" maxlength="100" placeholder="mis. Pengajian Lansia, ASAD, Remaja" autocomplete="off">
+          <select id="ketSesi"></select>
           <button class="btn2" id="btnSimpanKet" disabled>Simpan</button>
         </div>
       </div>
-      <datalist id="ketList"></datalist>
       <div id="segJK" class="seg" style="margin-top:10px">
         <button data-jk="S">Semua<span class="num" id="segS"></span></button><button data-jk="L">Pria<span class="num" id="segL"></span></button><button data-jk="P">Wanita<span class="num" id="segP"></span></button>
       </div>
@@ -379,7 +378,7 @@
  *   window.ABSEN_CONFIG = { API_URL: 'https://script.google.com/macros/s/..../exec' };
  */
 var API_URL = (window.ABSEN_CONFIG && window.ABSEN_CONFIG.API_URL) || '';
-var VERSI_APP = 20;    // versi tampilan; server (Code.gs) minimal harus versi ini
+var VERSI_APP = 21;    // versi tampilan; server (Code.gs) minimal harus versi ini
 var SYNC_MS = 15000;   // sinkron antar-HP tiap 15 detik
 
 var STATUS_H = 'Hadir', STATUS_I = 'Izin';
@@ -602,7 +601,7 @@ function renderHeader() {
 
 /* ---------- sesi ---------- */
 /** Keterangan sesi (kolom Keterangan di tab Sesi), disembunyikan jika masih "Pengajian rutin". */
-function ketSesi(s) { var k = String(s && s.ket || '').trim(); return k && !/^pengajian rutin$/i.test(k) ? ' · ' + k : ''; }
+function ketSesi(s) { var k = String(s && s.ket || '').trim(); return k && k.toLowerCase() !== daftarKet()[0].toLowerCase() ? ' · ' + k : ''; }
 /** Ambil paket (daftar sesi + data sesi) dari server dalam 1 panggilan, dengan overlay. */
 function loadInit(pilihId, teks) {
   return denganProgres(teks || 'Memuat sesi...', function () { return call('mulai', S.token, pilihId || null); })
@@ -622,7 +621,6 @@ function terapkanPaket(pk) {
     show($('selSesi'), S.petugas.admin && S.sesiList.length > 0); show($('lblSesi'), S.petugas.admin && S.sesiList.length > 0);
     var adaHariIni = S.sesiList.some(function (s) { return s.tanggal === S.today; });
     show($('bukaBox'), !adaHariIni && S.petugas.admin);            // buka sesi: hanya Admin
-    if (!adaHariIni) $('ketBaru').value = '';
     show($('bannerBelumSesi'), !adaHariIni && !S.petugas.admin);
     var jd = r.jadwal || {};
     $('bannerBelumSesiT').innerHTML = '<b>Sesi hari ini belum dibuka.</b><br>' +
@@ -639,18 +637,24 @@ function renderPilihanSesi() {
     return '<option value="' + esc(s.id) + '">' + esc(s.hari + ', ' + tglPendek(s.tanggal) + ' ' + s.tanggal.slice(0, 4) + ketSesi(s) + (s.status === 'Ditutup' ? ' · ditutup' : ' · terbuka')) + '</option>';
   }).join('') || '<option value="">Belum ada sesi</option>';
   if (cur) sel.value = cur;
-  // saran keterangan: yang pernah dipakai + contoh umum
-  var saran = ['Pengajian rutin', 'Pengajian Lansia', 'Pengajian Remaja', 'ASAD'];
-  S.sesiList.forEach(function (s) { if (s.ket && saran.indexOf(s.ket) < 0) saran.push(s.ket); });
-  $('ketList').innerHTML = saran.map(function (k) { return '<option value="' + esc(k) + '">'; }).join('');
+  // pilihan keterangan: dari Pengaturan → Daftar Keterangan Sesi
+  var baru = $('ketBaru'), pilihBaru = baru.value;
+  baru.innerHTML = daftarKet().map(function (k) { return '<option value="' + esc(k) + '">' + esc(k) + '</option>'; }).join('');
+  if (pilihBaru && daftarKet().indexOf(pilihBaru) >= 0) baru.value = pilihBaru;
 }
+function daftarKet() { var d = (S.jadwal && S.jadwal.daftarKet) || []; return d.length ? d : ['Pengajian rutin']; }
 /** Kolom keterangan sesi terpilih (Admin). */
 function renderKet() {
   var on = !!(S.petugas && S.petugas.admin && S.sesi && S.siap);
   show($('ketBox'), on);
   if (!on) return;
-  if (document.activeElement !== $('ketSesi')) $('ketSesi').value = S.sesi.ket || '';
-  $('btnSimpanKet').disabled = ($('ketSesi').value.trim() || 'Pengajian rutin') === (S.sesi.ket || 'Pengajian rutin');
+  var sel = $('ketSesi'), cur = S.sesi.ket || daftarKet()[0], pilih = sel.getAttribute('data-sesi') === S.sesi.id ? sel.value : cur;
+  var opsi = daftarKet().slice();
+  if (opsi.indexOf(cur) < 0) opsi.unshift(cur);   // keterangan lama yang sudah tidak ada di daftar
+  sel.innerHTML = opsi.map(function (k) { return '<option value="' + esc(k) + '">' + esc(k) + (daftarKet().indexOf(k) < 0 ? ' (lama)' : '') + '</option>'; }).join('');
+  sel.value = opsi.indexOf(pilih) >= 0 ? pilih : cur;
+  sel.setAttribute('data-sesi', S.sesi.id);
+  $('btnSimpanKet').disabled = sel.value === cur;
 }
 function simpanKet() {
   if (!S.sesi) return;
@@ -659,7 +663,7 @@ function simpanKet() {
   denganProgres('Menyimpan keterangan...', function () { return call('ubahKeterangan', S.token, id, k); }).then(function (d) {
     S.sesiList.forEach(function (x) { if (x.id === d.id) x.ket = d.ket; });
     if (S.sesi && S.sesi.id === d.id) S.sesi.ket = d.ket;
-    $('ketSesi').value = d.ket; renderPilihanSesi(); renderKet(); renderHeader();
+    $('ketSesi').removeAttribute('data-sesi'); renderPilihanSesi(); renderKet(); renderHeader();
     if (S.sesi && S.sesi.status === 'Ditutup') muatRekap();
     toast('Keterangan disimpan: ' + d.ket);
   }).catch(function (e) { toast(e.message, 'err', 4000); renderKet(); });
@@ -1194,8 +1198,7 @@ $('btnLogin').onclick = function () { var p = $('pin').value.trim(); if (p) doLo
 $('pin').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('btnLogin').click(); });
 $('btnLogout').onclick = function (e) { e.preventDefault(); logout(); };
 $('btnBukaSesi').onclick = bukaSesiHariIni;
-$('ketSesi').addEventListener('input', renderKet);
-$('ketSesi').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !$('btnSimpanKet').disabled) simpanKet(); });
+$('ketSesi').addEventListener('change', renderKet);
 $('btnSimpanKet').onclick = simpanKet;
 $('selSesi').onchange = function () {
   var id = this.value; stopLive();
