@@ -899,6 +899,12 @@ const API = {
     });
   },
   /** Admin: teks rekap sesi yang sudah ditutup, untuk dikirim ke grup WhatsApp pengurus. */
+  /** Dashboard kehadiran untuk admin di web app (angka sama dengan tab Dashboard_Absensi). */
+  dashboard: function (token, awal, akhir, jk) {
+    const p = auth_(token);
+    if (!p.admin) throw new Error('Hanya admin yang bisa membuka Dashboard.');
+    return dashboardData_(awal, akhir, jk);
+  },
   rekapPesan: function (token, sesiId) {
     const p = auth_(token);
     if (!p.admin) throw new Error('Hanya Admin yang bisa mengirim rekap.');
@@ -1149,6 +1155,54 @@ function hitungRekap_(sesiList, absen, o) {
   return { ringkas: ringkas, sesi: sesi, bulan: bulan, jamaah: jamaah };
 }
 
+/** Data absensi untuk rekap: tab Absensi + tab Arsip_<tahun> bila periode mencakup sesi yang sudah diarsipkan. */
+function bacaAbsenPeriode_(sesiAll, awal, akhir) {
+  const perluArsip = sesiAll.some(x => x.status === SESI_ARSIP && x.tanggal.slice(0, 7) >= awal && x.tanggal.slice(0, 7) <= akhir);
+  let mentah = readAbsen_();
+  if (perluArsip) {
+    for (let t = Number(awal.slice(0, 4)); t <= Number(akhir.slice(0, 4)); t++) mentah = mentah.concat(readArsip_(t));
+  }
+  return mentah.map(r => ({
+    sesi: String(r[AX.SESI]), id: String(r[AX.ID]).trim().toUpperCase(), nama: String(r[AX.NAMA]),
+    jk: normJK_(r[AX.JK]), status: String(r[AX.STATUS] || '').trim(),
+    telat: /^ya$/i.test(String(r[AX.TELAT] || '').trim()),
+  }));
+}
+
+/**
+ * Dashboard untuk aplikasi admin (web app). Perhitungan SAMA dengan tab Dashboard_Absensi (hitungRekap_).
+ * awal/akhir: 'yyyy-MM' (kosong = bulan ini), jk: 'L' | 'P' | 'Semua'.
+ */
+function dashboardData_(awal, akhir, jk) {
+  const set = getSettings_();
+  const sesiAll = getSesiList_();
+  const today = todayStr_();
+  const bulanSet = {};
+  sesiAll.forEach(s => { bulanSet[s.tanggal.slice(0, 7)] = 1; });
+  bulanSet[today.slice(0, 7)] = 1;
+  awal = parseBulan_(awal) || today.slice(0, 7);
+  akhir = parseBulan_(akhir) || awal;
+  if (awal > akhir) { const t = awal; awal = akhir; akhir = t; }
+  jk = (jk === 'L' || jk === 'P') ? jk : 'Semua';
+  const R = hitungRekap_(sesiAll, bacaAbsenPeriode_(sesiAll, awal, akhir), {
+    awal: awal, akhir: akhir, jk: jk,
+    ambangKurang: set.ambangKurang, ambangPerhatian: set.ambangPerhatian, izinHadir: set.izinHadir,
+  });
+  return {
+    awal: awal, akhir: akhir, jk: jk,
+    bulanTersedia: Object.keys(bulanSet).sort().map(b => ({ v: b, label: labelBulan_(b) })),
+    aturan: { ambangKurang: set.ambangKurang, ambangPerhatian: set.ambangPerhatian, seringTelat: set.seringTelat,
+      batasTepat: set.batasTepat, izinHadir: set.izinHadir },
+    ringkas: R.ringkas,
+    bulan: R.bulan.map(b => ({ bulan: b.bulan, label: labelBulan_(b.bulan), sesiTeks: b.sesiTeks, pct: b.pct, pctL: b.pctL, pctP: b.pctP, pctTelat: b.pctTelat })),
+    sesi: R.sesi.map(x => ({ tanggal: x.tanggal, hari: x.hari, ket: x.ket, hL: x.hL, hP: x.hP, telat: x.telat, izin: x.izin, alpa: x.alpa,
+      pct: x.pct, pctL: x.pctL, pctP: x.pctP })),
+    jamaah: R.jamaah.map(j => ({ id: j.id, nama: j.nama, jk: j.jk, hadir: j.hadir, telat: j.telat, pctTepat: j.pctTepat, izin: j.izin,
+      alpa: j.alpa, kecuali: j.kecuali, dihitung: j.dihitung, pct: j.pct, beruntun: j.beruntun, kategori: j.kategori })),
+    dibuat: fmt_(new Date(), 'dd/MM/yyyy HH:mm'),
+  };
+}
+
 function refreshDashboard_() {
   const sh = ss_().getSheetByName(SH.DASH);
   if (!sh) return;
@@ -1187,17 +1241,7 @@ function refreshDashboard_() {
   let tampil = String(c6.getValue() || '').trim();
   if (opsiTampil.indexOf(tampil) < 0) { tampil = 'Semua'; c6.setValue(tampil); }
 
-  // Data absensi: tab Absensi + tab Arsip_<tahun> bila periode mencakup sesi yang sudah diarsipkan
-  const perluArsip = sesiAll.some(x => x.status === SESI_ARSIP && x.tanggal.slice(0, 7) >= awal && x.tanggal.slice(0, 7) <= akhir);
-  let mentah = readAbsen_();
-  if (perluArsip) {
-    for (let t = Number(awal.slice(0, 4)); t <= Number(akhir.slice(0, 4)); t++) mentah = mentah.concat(readArsip_(t));
-  }
-  const absen = mentah.map(r => ({
-    sesi: String(r[AX.SESI]), id: String(r[AX.ID]).trim().toUpperCase(), nama: String(r[AX.NAMA]),
-    jk: normJK_(r[AX.JK]), status: String(r[AX.STATUS] || '').trim(),
-    telat: /^ya$/i.test(String(r[AX.TELAT] || '').trim()),
-  }));
+  const absen = bacaAbsenPeriode_(sesiAll, awal, akhir);
   const R = hitungRekap_(sesiAll, absen, {
     awal: awal, akhir: akhir, jk: jk,
     ambangKurang: set.ambangKurang, ambangPerhatian: set.ambangPerhatian, izinHadir: set.izinHadir,
