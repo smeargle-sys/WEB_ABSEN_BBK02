@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#D8001F">
+<title>Kiosk Presensi Mandiri</title>
+<script src="config.js" onerror="void 0"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root {
+    --red:#ED0226; --red2:#B90024; --navy:#1F2A5A; --ok:#15803D; --okbg:#E9F7EE;
+    --kunyit:#E3A008; --late:#92400E; --latebg:#FFF4D6; --izin:#7C3AED;
+    --err:#DC2626; --errbg:#FEF2F2; --ink:#111827; --mut:#6B7280; --bd:#E5E7EB; --bg:#F5F5F7;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--ink); overflow-x: hidden; }
+  .hide { display: none !important; }
+  .ic { display: inline-block; width: 18px; height: 18px; vertical-align: middle; }
+  
+  /* ===== LOGIN (PIN setup) ===== */
+  #vLogin { position: fixed; inset: 0; background: linear-gradient(135deg, var(--red), var(--red2));
+            display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 100; }
+  .login-box { background: #fff; border-radius: 20px; padding: 32px 24px; max-width: 320px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+  .login-box h1 { margin: 0 0 8px; font-size: 24px; color: var(--navy); }
+  .login-box .sub { font-size: 13px; color: var(--mut); margin-bottom: 24px; }
+  .login-box input { width: 100%; padding: 12px 16px; font-size: 18px; border: 2px solid var(--bd); border-radius: 12px; margin-bottom: 14px; text-align: center; letter-spacing: 2px; }
+  .login-box input:focus { outline: none; border-color: var(--navy); }
+  .login-box button { width: 100%; padding: 14px; font-size: 16px; font-weight: 700; border: 0; border-radius: 12px; background: var(--navy); color: #fff; cursor: pointer; }
+  .login-box button:active { background: #0D1428; }
+  .login-box .err { color: var(--err); font-size: 12px; margin-top: 10px; min-height: 20px; }
+  
+  /* ===== HEADER ===== */
+  header { background: linear-gradient(120deg, var(--red), var(--red2)); color: #fff; padding: 16px 20px; position: sticky; top: 0; z-index: 10; }
+  .hdr-in { max-width: 1200px; margin: 0 auto; }
+  .hdr-t { font-size: 20px; font-weight: 700; margin: 0; }
+  .hdr-s { font-size: 13px; opacity: 0.9; margin-top: 4px; display: flex; justify-content: space-between; gap: 10px; }
+  .hdr-s .jk { flex: 1; }
+  .hdr-time { font-size: 24px; font-weight: 700; font-family: monospace; }
+  
+  /* ===== TERKUNCI (layar 0) ===== */
+  #vTerkunci { position: fixed; inset: 0; background: linear-gradient(135deg, var(--red), var(--red2)); color: #fff;
+               display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
+  .terkunci-box { text-align: center; }
+  .terkunci-box h2 { margin: 0 0 16px; font-size: 32px; }
+  .terkunci-box p { margin: 0 0 8px; font-size: 16px; opacity: 0.9; }
+  .terkunci-time { font-size: 48px; font-weight: 700; font-family: monospace; margin: 32px 0; }
+  
+  /* ===== MAIN CONTAINER ===== */
+  main { max-width: 1200px; margin: 0 auto; padding: 20px; display: flex; gap: 20px; min-height: calc(100vh - 100px); }
+  
+  /* ===== KAMERA + INFO (kiri) ===== */
+  .cam-sec { flex: 1.5; display: flex; flex-direction: column; }
+  .cam-box { background: #000; border-radius: 16px; overflow: hidden; aspect-ratio: 4/3; margin-bottom: 16px; position: relative; }
+  #reader { width: 100%; height: 100%; }
+  #reader video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
+  .cam-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 16px; font-weight: 600; }
+  .cam-status { font-size: 12px; color: var(--mut); text-align: center; padding: 8px; }
+  
+  /* ===== PESAN (kanan) ===== */
+  .msg-sec { flex: 1; display: flex; flex-direction: column; }
+  .msg-judul { font-size: 20px; font-weight: 700; margin-bottom: 20px; color: var(--navy); }
+  .msg-langkah { margin-bottom: 24px; }
+  .msg-langkah ol { margin: 0; padding-left: 24px; }
+  .msg-langkah li { margin: 8px 0; font-size: 15px; color: var(--ink); }
+  .msg-info { background: var(--latebg); border: 1px solid #FCD34D; border-radius: 12px; padding: 14px; font-size: 14px; color: #78350F; margin-top: 20px; }
+  
+  /* ===== HASIL SCAN ===== */
+  #vHasil { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 20px; }
+  .hasil-panel { max-width: 480px; width: 100%; border-radius: 20px; padding: 32px 24px; text-align: center; color: #fff; }
+  .hasil-panel.ok { background: linear-gradient(135deg, var(--ok), #0C7C3A); }
+  .hasil-panel.navy { background: linear-gradient(135deg, var(--navy), #0D1428); }
+  .hasil-panel.err { background: linear-gradient(135deg, var(--err), #991B1B); }
+  .hasil-ic { font-size: 56px; margin-bottom: 16px; }
+  .hasil-nama { font-size: 36px; font-weight: 700; margin-bottom: 8px; line-height: 1.2; }
+  .hasil-st { font-size: 16px; font-weight: 700; margin-bottom: 4px; opacity: 0.9; }
+  .hasil-sub { font-size: 14px; opacity: 0.85; margin: 12px 0 0; line-height: 1.5; }
+  .hasil-countdown { font-size: 48px; font-weight: 700; margin-top: 20px; font-family: monospace; }
+  
+  /* ===== FOOTER ===== */
+  footer { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid var(--bd); padding: 12px 20px; font-size: 12px; color: var(--mut); }
+  .ft-in { max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+  .ft-left { flex: 1; }
+  .ft-right { text-align: right; }
+  .queue-badge { background: var(--err); color: #fff; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+  
+  @media (max-width: 768px) {
+    main { flex-direction: column; gap: 16px; }
+    .cam-sec, .msg-sec { flex: none; }
+    .msg-judul { font-size: 18px; }
+    .hasil-nama { font-size: 28px; }
+    .hasil-ic { font-size: 44px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- LOGIN KIOSK (hanya sekali di awal) -->
+<div id="vLogin" class="hide">
+  <div class="login-box">
+    <h1>Kiosk Presensi</h1>
+    <div class="sub">Masukkan PIN kiosk</div>
+    <input type="password" id="pinInput" inputmode="numeric" placeholder="••••" autocomplete="off">
+    <button id="btnLogin">Masuk</button>
+    <div id="loginErr" class="err"></div>
+  </div>
+</div>
+
+<!-- TERKUNCI (sesi belum dibuka) -->
+<div id="vTerkunci" class="hide">
+  <div class="terkunci-box">
+    <h2>Presensi Mandiri · BBK02</h2>
+    <p id="terkunciMsg">Presensi dibuka pukul 19:30</p>
+    <div id="terkunciTime" class="terkunci-time">19:30</div>
+  </div>
+</div>
+
+<!-- HEADER -->
+<header class="hide" id="hdr">
+  <div class="hdr-in">
+    <h1 class="hdr-t">Presensi Mandiri · BBK02</h1>
+    <div class="hdr-s">
+      <span class="jk" id="hdrJk">📍 Senin, 15 Desember 2024 · Pengajian rutin</span>
+      <span class="hdr-time" id="hdrTime">19:30</span>
+    </div>
+  </div>
+</header>
+
+<!-- KONTEN UTAMA -->
+<main class="hide" id="main">
+  <!-- KAMERA (kiri) -->
+  <section class="cam-sec">
+    <div class="cam-box">
+      <div id="reader"></div>
+      <div class="cam-hint" id="camHint">📱 Arahkan kamera ke kartu QR</div>
+    </div>
+    <div class="cam-status" id="camStatus">Menunggu scan...</div>
+  </section>
+  
+  <!-- PESAN (kanan) -->
+  <section class="msg-sec">
+    <div class="msg-judul">Tempelkan Kartu QR Anda ke Kamera</div>
+    <div class="msg-langkah">
+      <ol>
+        <li>Siapkan kartu QR presensi Anda</li>
+        <li>Dekatkan ke kamera dengan jarak ±15 cm</li>
+        <li>Tunggu hasil scan muncul di layar</li>
+      </ol>
+    </div>
+    <div class="msg-info">
+      <strong>Lupa kartu atau HP mati?</strong><br>
+      Silakan ke petugas di meja absensi.
+    </div>
+  </section>
+</main>
+
+<!-- HASIL SCAN (overlay) -->
+<div id="vHasil" class="hide">
+  <div id="hasilPanel" class="hasil-panel ok">
+    <div class="hasil-ic" id="hasilIc">✓</div>
+    <div class="hasil-nama" id="hasilNama">Nama Jamaah</div>
+    <div class="hasil-st" id="hasilSt">Hadir · tercatat 19:38</div>
+    <div class="hasil-sub" id="hasilSub">Jazakallahu khoiro, silakan masuk.</div>
+    <div class="hasil-countdown" id="countdown">3</div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<footer id="ft" class="hide">
+  <div class="ft-in">
+    <div class="ft-left">Mode kiosk · hanya mencatat kehadiran | Hadir hari ini: <strong id="ftHadir">0</strong></div>
+    <div class="ft-right">
+      <span id="ftQueue" class="hide">
+        <span class="queue-badge" id="queueBadge">3 data menunggu</span>
+      </span>
+    </div>
+  </div>
+</footer>
+
+<script>
+// ===== KONFIGURASI =====
+var API_URL = (window.ABSEN_CONFIG && window.ABSEN_CONFIG.API_URL) || '';
+var VERSI_APP = 22;
+var SYNC_MS = 15000;   // polling 15 detik
+
+var S = {
+  token: null, pin: '', petugas: null, sesi: null, jamaah: {}, sudah: {}, hadir: 0, offline: [],
+  scanning: true, lockScan: false, timer: null, lastQR: '', lastQRTime: 0,
+  ver: VERSI_APP, verServer: VERSI_APP,
+};
+
+// ===== UTILITAS =====
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function show(el, on) { if (el) el.classList.toggle('hide', !on); }
+function cls(el, c, on) { if (el) el.classList.toggle(c, on !== false); }
+
+// ===== WAKTU =====
+function jamSekarang() {
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hour12: false
+    }).format(new Date());
+  } catch (e) {
+    var d = new Date();
+    return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+  }
+}
+function updateTime() {
+  $('hdrTime').textContent = jamSekarang();
+  $('terkunciTime').textContent = jamSekarang();
+}
+setInterval(updateTime, 1000);
+
+// ===== API CALL =====
+function call(fn) {
+  var args = Array.prototype.slice.call(arguments, 1);
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/.test(API_URL))
+    return Promise.reject(new Error('Link web app belum diatur (config.js).'));
+  return fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ fn: fn, args: args })
+  }).then(r => r.json()).then(j => {
+    if (!j.ok) throw new Error(j.error);
+    return j.data;
+  }).catch(e => {
+    console.error('API error:', e);
+    throw e;
+  });
+}
+
+// ===== LOGIN KIOSK =====
+function doLogin() {
+  var pin = $('pinInput').value.trim();
+  if (!pin) return;
+  if (!/^\d+$/.test(pin)) { $('loginErr').textContent = 'PIN hanya angka'; return; }
+  
+  call('login', pin).then(res => {
+    if (!res.petugas.kiosk) throw new Error('PIN ini bukan akun kiosk. Gunakan PIN kiosk.');
+    S.token = res.token;
+    S.petugas = res.petugas;
+    S.verServer = res.versiServer;
+    localStorage.setItem('absen_bbk02_kiosk_token', S.token);
+    localStorage.setItem('absen_bbk02_kiosk_pin', pin);
+    $('pinInput').value = '';
+    show($('vLogin'), false);
+    start();
+  }).catch(e => {
+    $('loginErr').textContent = e.message;
+  });
+}
+
+// ===== MULAI APLIKASI =====
+function start() {
+  updateTime();
+  loadInfo();
+}
+
+function loadInfo() {
+  call('kioskInfo', S.token).then(res => {
+    S.sesi = res.sesi;
+    S.hadir = res.hadir;
+    S.sudah = res.sudah || {};
+    S.verServer = res.ver;
+    
+    // Buat map jamaah
+    S.jamaah = {};
+    if (res.jamaah) {
+      res.jamaah.forEach(j => { S.jamaah[j.id] = j.nama; });
+    }
+    
+    // Update UI
+    show($('hdr'), true);
+    show($('ft'), true);
+    $('ftHadir').textContent = S.hadir;
+    
+    if (!S.sesi || S.sesi.status !== 'Terbuka') {
+      // Terkunci
+      show($('main'), false);
+      show($('vTerkunci'), true);
+      show($('vHasil'), false);
+      var jamBuka = res.jadwal.jamBuka;
+      $('terkunciMsg').textContent = 'Presensi dibuka pukul ' + jamBuka;
+      // Polling untuk membuka
+      clearTimeout(S.timer);
+      S.timer = setTimeout(() => { loadInfo(); }, 20000);
+    } else {
+      // Siap scan
+      show($('vTerkunci'), false);
+      show($('main'), true);
+      show($('vHasil'), false);
+      $('hdrJk').textContent = (S.sesi.hari || '') + ', ' + S.sesi.tanggal + ' · ' + (S.sesi.ket || '');
+      startCamera();
+      startPolling();
+    }
+  }).catch(e => {
+    console.error('Load info error:', e);
+    setTimeout(loadInfo, 5000);
+  });
+}
+
+// ===== KAMERA =====
+function startCamera() {
+  if (S.scanning || !S.token) return;
+  
+  // Check if html5-qrcode library is loaded
+  if (typeof Html5Qrcode === 'undefined') {
+    console.warn('Html5Qrcode not loaded yet, retrying in 500ms...');
+    setTimeout(startCamera, 500);
+    return;
+  }
+  
+  S.scanning = true;
+  
+  Html5Qrcode.getCameras().then(cameras => {
+    var selectedCamera = null;
+    if (cameras && cameras.length > 0) {
+      // Cari kamera depan
+      var front = cameras.find(c => /front|user|depan/i.test(c.label));
+      selectedCamera = front ? front.id : cameras[0].id;
+    }
+    
+    var html5QrcodeScanner = new Html5Qrcode(
+      'reader',
+      { fps: 10, qrbox: { width: 250, height: 250 }, facingMode: 'user' }
+    );
+    
+    html5QrcodeScanner.start(
+      selectedCamera || { facingMode: 'user' },
+      { fps: 10, qrbox: { width: 250, height: 250 } },
+      onQRDetect,
+      onQRError
+    ).catch(e => {
+      console.error('Camera error:', e);
+      S.scanning = false;
+    });
+    
+    S.qrScanner = html5QrcodeScanner;
+  }).catch(e => {
+    console.error('Get cameras error:', e);
+    S.scanning = false;
+  });
+}
+
+function onQRDetect(decodedText, decodedResult) {
+  if (S.lockScan) return;
+  
+  var id = decodedText.trim().toUpperCase();
+  var now = Date.now();
+  
+  // Debounce: scan ID sama dalam 5 detik diabaikan
+  if (id === S.lastQR && now - S.lastQRTime < 5000) return;
+  
+  S.lastQR = id;
+  S.lastQRTime = now;
+  S.lockScan = true;
+  
+  handleScan(id, 'kamera');
+}
+
+function onQRError(error) {
+  // Abaikan error scan yang normal
+}
+
+function handleScan(id, sumber) {
+  if (!S.sesi) { S.lockScan = false; return; }
+  
+  // Cek apakah sudah tercatat
+  var sudahTercatat = S.sudah[id];
+  if (sudahTercatat) {
+    showHasilSudah(id, sudahTercatat);
+    setTimeout(() => { S.lockScan = false; }, 3000);
+    return;
+  }
+  
+  // Cek apakah ID dikenal
+  var nama = S.jamaah[id];
+  if (!nama) {
+    showHasilTidakDikenal(id);
+    setTimeout(() => { S.lockScan = false; }, 3000);
+    return;
+  }
+  
+  // Scan ke server
+  call('kioskScan', S.token, S.sesi.id, [{ id: id, sumber: sumber, t: Date.now() }])
+    .then(res => {
+      S.hadir = res.hadir;
+      $('ftHadir').textContent = S.hadir;
+      
+      if (res.hasil && res.hasil.length > 0) {
+        var r = res.hasil[0];
+        if (r.status === 'baru') {
+          S.sudah[id] = r.jam;
+          showHasilBerhasil(id, nama, r.jam);
+        } else if (r.status === 'sudah') {
+          showHasilSudah(id, r.jam);
+        } else {
+          showHasilTidakDikenal(id);
+        }
+      } else {
+        showHasilTidakDikenal(id);
+      }
+      
+      setTimeout(() => { S.lockScan = false; }, 3000);
+    })
+    .catch(e => {
+      console.error('Scan error:', e);
+      // Offline: simpan ke antrean
+      S.offline.push({ id: id, sumber: sumber, t: Date.now() });
+      showHasilBerhasil(id, nama, jamSekarang());
+      setTimeout(() => { S.lockScan = false; }, 3000);
+    });
+}
+
+// ===== TAMPILAN HASIL =====
+function showHasilBerhasil(id, nama, jam) {
+  var panel = $('hasilPanel');
+  panel.className = 'hasil-panel ok';
+  $('hasilIc').textContent = '✓';
+  $('hasilNama').textContent = nama;
+  $('hasilSt').textContent = 'Hadir · tercatat ' + jam;
+  $('hasilSub').textContent = 'Jazakallahu khoiro, silakan masuk.';
+  show($('vHasil'), true);
+  countdown(3);
+}
+
+function showHasilSudah(id, jam) {
+  var panel = $('hasilPanel');
+  panel.className = 'hasil-panel navy';
+  $('hasilIc').textContent = '⌛';
+  $('hasilNama').textContent = 'Sudah tercatat';
+  $('hasilSt').textContent = 'Pukul ' + jam;
+  $('hasilSub').textContent = 'Tidak perlu scan lagi. Silakan masuk.';
+  show($('vHasil'), true);
+  countdown(3);
+}
+
+function showHasilTidakDikenal(id) {
+  var panel = $('hasilPanel');
+  panel.className = 'hasil-panel err';
+  $('hasilIc').textContent = '⚠';
+  $('hasilNama').textContent = 'Kartu belum dikenali';
+  $('hasilSt').textContent = '';
+  $('hasilSub').textContent = 'Silakan ke petugas di meja absensi.';
+  show($('vHasil'), true);
+  countdown(3);
+}
+
+function countdown(s) {
+  $('countdown').textContent = s;
+  if (s > 0) {
+    setTimeout(() => { countdown(s - 1); }, 1000);
+  } else {
+    show($('vHasil'), false);
+  }
+}
+
+// ===== POLLING SINKRON =====
+function startPolling() {
+  clearTimeout(S.syncTimer);
+  S.syncTimer = setTimeout(() => {
+    if (!S.sesi) return;
+    call('kioskSinkron', S.token, S.sesi.id, S.verServer)
+      .then(res => {
+        S.verServer = res.ver;
+        if (!res.sama) {
+          S.hadir = res.hadir || S.hadir;
+          $('ftHadir').textContent = S.hadir;
+          if (res.sudah) S.sudah = res.sudah;
+        }
+        if (res.status !== 'Terbuka') {
+          // Sesi ditutup
+          show($('main'), false);
+          show($('vTerkunci'), true);
+          if (S.qrScanner) S.qrScanner.stop();
+        }
+        startPolling();
+      })
+      .catch(e => {
+        console.error('Sinkron error:', e);
+        startPolling();
+      });
+  }, SYNC_MS);
+}
+
+// ===== EVENT LISTENERS =====
+$('btnLogin').addEventListener('click', doLogin);
+$('pinInput').addEventListener('keypress', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+// ===== STARTUP =====
+function init() {
+  var token = localStorage.getItem('absen_bbk02_kiosk_token');
+  var pin = localStorage.getItem('absen_bbk02_kiosk_pin');
+  
+  if (token && pin) {
+    S.token = token;
+    $('pinInput').value = pin;
+    show($('vLogin'), false);
+    start();
+  } else {
+    show($('vLogin'), true);
+    show($('main'), false);
+    show($('vTerkunci'), false);
+    show($('hdr'), false);
+    show($('ft'), false);
+  }
+}
+
+// Request fullscreen setelah interaksi pertama
+document.addEventListener('click', () => {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(e => console.log('Fullscreen denied:', e));
+  }
+}, { once: true });
+
+// Wake Lock untuk tablet
+if (navigator.wakeLock) {
+  async function requestWakeLock() {
+    try {
+      var wakeLock = await navigator.wakeLock.request('screen');
+      document.addEventListener('visibilitychange', async () => {
+        if (document.hidden) wakeLock.release();
+        else wakeLock = await navigator.wakeLock.request('screen');
+      });
+    } catch (e) { console.log('Wake Lock error:', e); }
+  }
+  requestWakeLock();
+}
+
+// Mulai
+init();
+</script>
+</body>
+</html>
