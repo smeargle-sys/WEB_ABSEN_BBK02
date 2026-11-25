@@ -57,6 +57,16 @@
   #reader video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
   .cam-hint { position: absolute; inset: 0; pointer-events: none; text-align: center; padding: 20px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 16px; font-weight: 600; }
   .cam-status { font-size: 12px; color: var(--mut); text-align: center; padding: 8px; }
+  .cam-box { transition: box-shadow .15s; }
+  .cam-box.flash { box-shadow: 0 0 0 8px var(--ok); }
+  .cam-label { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px; text-align: center; color: #fff;
+               font-size: 14px; font-weight: 600; background: linear-gradient(transparent, rgba(0,0,0,.6)); pointer-events: none; }
+
+  /* ===== PROSES (menunggu server) ===== */
+  #vProses { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: flex; align-items: center; justify-content: center; z-index: 59; color: #fff; text-align: center; }
+  #vProses .spinner { margin-bottom: 16px; }
+  #vProses .proses-t { font-size: 24px; font-weight: 700; }
+  #vProses .proses-s { font-size: 14px; opacity: .85; margin-top: 6px; }
   
   /* ===== PESAN (kanan) ===== */
   .msg-sec { flex: 1; display: flex; flex-direction: column; }
@@ -83,7 +93,8 @@
   .ft-in { max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; gap: 20px; }
   .ft-left { flex: 1; }
   .ft-right { text-align: right; }
-  .queue-badge { background: var(--err); color: #fff; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+  .queue-badge { background: var(--kunyit); color: #fff; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; cursor: pointer; }
+  .queue-badge.warn { background: var(--err); }
   
   @media (max-width: 768px) {
     main { flex-direction: column; gap: 16px; }
@@ -154,18 +165,19 @@
     <div class="cam-box">
       <div id="reader"></div>
       <div class="cam-hint" id="camHint">📱 Arahkan kamera ke kartu QR</div>
+      <div class="cam-label">Letakkan QR di dalam kotak · jarak ±25–30 cm</div>
     </div>
     <div class="cam-status" id="camStatus">Menunggu scan...</div>
   </section>
   
   <!-- PESAN (kanan) -->
   <section class="msg-sec">
-    <div class="msg-judul">Tempelkan Kartu QR Anda ke Kamera</div>
+    <div class="msg-judul">Tunjukkan Kartu QR Anda ke Kamera</div>
     <div class="msg-langkah">
       <ol>
         <li>Siapkan kartu QR presensi Anda</li>
-        <li>Dekatkan ke kamera dengan jarak ±15 cm</li>
-        <li>Tunggu hasil scan muncul di layar</li>
+        <li>Hadapkan ke kamera dengan jarak <strong>±25–30 cm</strong> (jangan terlalu dekat agar tidak buram)</li>
+        <li>Tahan sampai terdengar bunyi “beep” dan nama Anda muncul</li>
       </ol>
     </div>
     <div class="msg-info">
@@ -174,6 +186,15 @@
     </div>
   </section>
 </main>
+
+<!-- PROSES (menunggu server, hanya untuk kartu yang belum ada di data lokal) -->
+<div id="vProses" class="hide">
+  <div>
+    <div class="spinner"></div>
+    <div class="proses-t">Kartu terbaca</div>
+    <div class="proses-s">Sedang memproses, mohon tunggu…</div>
+  </div>
+</div>
 
 <!-- HASIL SCAN (overlay) -->
 <div id="vHasil" class="hide">
@@ -205,10 +226,15 @@ var VERSI_APP = 22;
 var SYNC_MS = 15000;   // polling 15 detik
 
 var S = {
-  token: null, pin: '', petugas: null, sesi: null, jamaah: {}, sudah: {}, hadir: 0, offline: [],
+  token: null, pin: '', petugas: null, sesi: null, jamaah: {}, sudah: {}, hadir: 0,
   scanning: false, lockScan: false, timer: null, lastQR: '', lastQRTime: 0,
   ver: VERSI_APP, verServer: VERSI_APP,
+  antrean: [], gagal: [], mengirim: false, retryMs: 0, kirimTimer: null, hasilTimer: null,
 };
+var KEY_ANTREAN = 'absen_bbk02_kiosk_antrean';
+var KEY_GAGAL = 'absen_bbk02_kiosk_gagal';
+var SCAN_TIMEOUT_MS = 8000;
+var HASIL_DETIK = 3;
 
 // ===== UTILITAS =====
 function $(id) { return document.getElementById(id); }
@@ -234,21 +260,167 @@ function updateTime() {
 setInterval(updateTime, 1000);
 
 // ===== API CALL =====
-function call(fn) {
-  var args = Array.prototype.slice.call(arguments, 1);
+// e.server = true → server menjawab dengan error (bukan masalah jaringan/timeout)
+function apiCall(fn, args, ms) {
   if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/.test(API_URL))
-    return Promise.reject(new Error('Link web app belum diatur (config.js).'));
+    return Promise.reject(Object.assign(new Error('Link web app belum diatur (config.js).'), { server: true }));
+  var ctrl = window.AbortController ? new AbortController() : null;
+  var timer = ctrl ? setTimeout(() => ctrl.abort(), ms || 20000) : null;
   return fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ fn: fn, args: args })
+    body: JSON.stringify({ fn: fn, args: args }),
+    signal: ctrl ? ctrl.signal : undefined,
   }).then(r => r.json()).then(j => {
-    if (!j.ok) throw new Error(j.error);
+    clearTimeout(timer);
+    if (!j.ok) { var e = new Error(j.error); e.server = true; throw e; }
     return j.data;
   }).catch(e => {
-    console.error('API error:', e);
+    clearTimeout(timer);
+    if (e && e.name === 'AbortError') e = new Error('Timeout: server tidak merespons');
+    console.error('API error:', fn, e);
     throw e;
   });
+}
+function call(fn) { return apiCall(fn, Array.prototype.slice.call(arguments, 1), 20000); }
+
+// ===== ANTREAN KIRIM (disimpan di localStorage, aman walau halaman di-refresh) =====
+function muatLS(k) {
+  try { var v = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(v) ? v : []; }
+  catch (e) { return []; }
+}
+S.antrean = muatLS(KEY_ANTREAN);
+S.gagal = muatLS(KEY_GAGAL);
+
+function simpanAntrean() {
+  try {
+    localStorage.setItem(KEY_ANTREAN, JSON.stringify(S.antrean));
+    localStorage.setItem(KEY_GAGAL, JSON.stringify(S.gagal));
+  } catch (e) {}
+  updateBadge();
+}
+
+function updateBadge() {
+  var n = S.antrean.length, g = S.gagal.length, t = [];
+  if (n) t.push(n + ' data menunggu dikirim');
+  if (g) t.push(g + ' gagal — lapor petugas');
+  $('queueBadge').textContent = t.join(' · ');
+  cls($('queueBadge'), 'warn', g > 0);
+  show($('ftQueue'), n + g > 0);
+}
+
+function antreanSesiIni() {
+  var sid = S.sesi && S.sesi.id;
+  return S.antrean.filter(x => x.sesiId === sid);
+}
+
+// Data yang belum terkirim tetap dianggap "sudah" agar tidak dobel scan
+function gabungAntrean() {
+  antreanSesiIni().forEach(x => { if (!S.sudah[x.id]) S.sudah[x.id] = x.jam; });
+}
+
+function setHadirServer(h) {
+  if (h == null) return;
+  S.hadir = h + antreanSesiIni().length;   // server + yang masih di antrean
+  $('ftHadir').textContent = S.hadir;
+}
+
+// Error yang tidak akan berhasil walau dicoba ulang → pindah ke daftar gagal
+var ERR_PERMANEN = /SESI_DITUTUP|Sesi tidak ditemukan|hari ini|belum dibuka|bukan akun|Terlalu banyak/i;
+
+function kirimAntrean() {
+  clearTimeout(S.kirimTimer);
+  if (S.mengirim || !S.antrean.length || !S.token) return;
+  var sesiId = S.antrean[0].sesiId;
+  var batch = S.antrean.filter(x => x.sesiId === sesiId).slice(0, 50);
+  S.mengirim = true;
+  apiCall('kioskScan', [S.token, sesiId, batch.map(x => ({ id: x.id, sumber: x.sumber, t: x.t }))], 15000)
+    .then(res => {
+      S.mengirim = false;
+      S.retryMs = 0;
+      var hasil = {};
+      (res.hasil || []).forEach(r => { hasil[r.id] = r; });
+      batch.forEach(x => {
+        var r = hasil[x.id];
+        if (!r || r.status === 'ditolak') {
+          S.gagal.push({ id: x.id, jam: x.jam, alasan: 'Ditolak server' });
+          delete S.sudah[x.id];
+        } else if (r.jam && S.sesi && sesiId === S.sesi.id) S.sudah[x.id] = r.jam;
+      });
+      S.antrean = S.antrean.filter(x => batch.indexOf(x) < 0);
+      simpanAntrean();
+      if (S.sesi && sesiId === S.sesi.id) setHadirServer(res.hadir);
+      if (S.antrean.length) kirimAntrean();
+    })
+    .catch(e => {
+      S.mengirim = false;
+      if (e.server && ERR_PERMANEN.test(e.message)) {
+        batch.forEach(x => {
+          S.gagal.push({ id: x.id, jam: x.jam, alasan: e.message });
+          if (S.sesi && sesiId === S.sesi.id) delete S.sudah[x.id];
+        });
+        S.antrean = S.antrean.filter(x => batch.indexOf(x) < 0);
+        simpanAntrean();
+        if (S.antrean.length) kirimAntrean();
+        return;
+      }
+      // Jaringan / timeout / server sibuk → coba lagi dengan jeda makin lama (maks 30 detik)
+      S.retryMs = Math.min((S.retryMs || 1500) * 2, 30000);
+      S.kirimTimer = setTimeout(kirimAntrean, S.retryMs);
+    });
+}
+window.addEventListener('online', kirimAntrean);
+
+function lihatGagal() {
+  if (!S.gagal.length) { kirimAntrean(); return; }
+  var daftar = S.gagal.map(x => '• ' + x.id + ' (' + (S.jamaah[x.id] || '?') + ') ' + (x.jam || '') + ' — ' + x.alasan).join('\n');
+  if (confirm('Data gagal tercatat — catat manual oleh petugas:\n\n' + daftar + '\n\nHapus daftar ini dari kiosk?')) {
+    S.gagal = [];
+    simpanAntrean();
+  }
+}
+
+// ===== FEEDBACK: BUNYI + GETAR + KILAT =====
+var AC = null;
+function audioSiap() {
+  try {
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    if (AC.state === 'suspended') AC.resume();
+  } catch (e) {}
+}
+// Browser hanya mengizinkan audio setelah ada sentuhan/klik pertama
+['click', 'touchstart', 'keydown'].forEach(ev => document.addEventListener(ev, audioSiap, { passive: true }));
+
+function nada(freq, mulai, dur) {
+  var t0 = AC.currentTime + mulai;
+  var o = AC.createOscillator(), g = AC.createGain();
+  o.type = 'sine';
+  o.frequency.value = freq;
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.5, t0 + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g);
+  g.connect(AC.destination);
+  o.start(t0);
+  o.stop(t0 + dur + 0.02);
+}
+
+function bunyi(jenis) {
+  try {
+    if (!AC) audioSiap();
+    if (!AC || AC.state !== 'running') return;
+    if (jenis === 'scan') nada(1200, 0, 0.08);
+    else if (jenis === 'ok') { nada(880, 0, 0.12); nada(1320, 0.13, 0.2); }
+    else if (jenis === 'sudah') { nada(660, 0, 0.15); nada(660, 0.2, 0.15); }
+    else { nada(300, 0, 0.2); nada(200, 0.22, 0.3); }
+  } catch (e) {}
+}
+
+function feedbackTerbaca() {
+  if (navigator.vibrate) navigator.vibrate(80);
+  var box = document.querySelector('.cam-box');
+  cls(box, 'flash', true);
+  setTimeout(() => cls(box, 'flash', false), 400);
 }
 
 // ===== LOGIN KIOSK =====
@@ -282,9 +454,12 @@ function start() {
 function loadInfo() {
   call('kioskInfo', S.token).then(res => {
     S.sesi = res.sesi;
-    S.hadir = res.hadir;
     S.sudah = res.sudah || {};
     S.verServer = res.ver;
+    gabungAntrean();
+    setHadirServer(res.hadir || 0);
+    updateBadge();
+    kirimAntrean();
     
     // Buat map jamaah
     S.jamaah = {};
@@ -346,23 +521,32 @@ function startCamera() {
     if (!S.camAktif) $('camStatus').textContent = '⏳ Menunggu izin kamera — klik "Allow" di browser. Jika tidak muncul, buka di Chrome/Safari.';
   }, 10000);
 
-  var scanCfg = { fps: 10, qrbox: (w, h) => { var s = Math.floor(Math.min(w, h) * 0.7); return { width: s, height: s }; } };
+  var scanCfg = { fps: 15, qrbox: (w, h) => { var s = Math.floor(Math.min(w, h) * 0.7); return { width: s, height: s }; } };
+  // Resolusi lebih tinggi = QR kecil/jauh tetap terbaca (penting untuk kamera depan fixed-focus)
+  var HD = { width: { ideal: 1280 }, height: { ideal: 720 } };
 
   Html5Qrcode.getCameras().then(cameras => {
+    // Urutan percobaan: kamera depan HD → user HD → user biasa → belakang → kamera lain
     var kandidat = [];
     if (cameras && cameras.length) {
       var front = cameras.find(c => /front|user|depan|facetime/i.test(c.label));
-      kandidat.push((front || cameras[0]).id);
+      kandidat.push(Object.assign({ deviceId: { exact: (front || cameras[0]).id } }, HD));
     }
-    kandidat.push({ facingMode: 'user' }, { facingMode: 'environment' });
-    if (cameras) cameras.forEach(c => { if (kandidat.indexOf(c.id) < 0) kandidat.push(c.id); });
+    kandidat.push(Object.assign({ facingMode: 'user' }, HD), { facingMode: 'user' }, { facingMode: 'environment' });
+    if (cameras) cameras.forEach(c => kandidat.push({ deviceId: { exact: c.id } }));
 
-    var scanner = new Html5Qrcode('reader', { verbose: false });
+    var scanner = new Html5Qrcode('reader', {
+      verbose: false,
+      formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],          // hanya QR → jauh lebih ringan
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true },    // pakai detektor bawaan browser jika ada
+    });
     S.qrScanner = scanner;
 
     function coba(i, errTerakhir) {
       if (i >= kandidat.length) return Promise.reject(errTerakhir || new Error('Tidak ada kamera yang bisa dibuka'));
-      return scanner.start(kandidat[i], scanCfg, onQRDetect, onQRError)
+      var c = kandidat[i];
+      var camArg = c.deviceId ? c.deviceId.exact : { facingMode: c.facingMode };
+      return scanner.start(camArg, Object.assign({}, scanCfg, { videoConstraints: c }), onQRDetect, onQRError)
         .catch(e => {
           console.warn('Kamera gagal dengan', kandidat[i], e);
           return coba(i + 1, e);
@@ -424,94 +608,96 @@ function onQRError(error) {
 
 function handleScan(id, sumber) {
   if (!S.sesi) { S.lockScan = false; return; }
-  
-  // Cek apakah sudah tercatat
-  var sudahTercatat = S.sudah[id];
-  if (sudahTercatat) {
-    showHasilSudah(id, sudahTercatat);
-    setTimeout(() => { S.lockScan = false; }, 3000);
+  feedbackTerbaca();
+
+  // 1. Sudah tercatat (data lokal) → langsung tampil
+  var jam = S.sudah[id];
+  if (jam) {
+    bunyi('sudah');
+    showHasilSudah(id, jam);
     return;
   }
-  
-  // Cek apakah ID dikenal
+
+  // 2. Jamaah dikenal (data lokal) → OPTIMISTIC: tampil instan, kirim ke server di belakang
   var nama = S.jamaah[id];
-  if (!nama) {
-    showHasilTidakDikenal(id);
-    setTimeout(() => { S.lockScan = false; }, 3000);
+  if (nama) {
+    jam = jamSekarang();
+    S.sudah[id] = jam;
+    S.antrean.push({ id: id, sumber: sumber, t: Date.now(), jam: jam, sesiId: S.sesi.id });
+    simpanAntrean();
+    S.hadir++;
+    $('ftHadir').textContent = S.hadir;
+    bunyi('ok');
+    showHasilBerhasil(id, nama, jam);
+    kirimAntrean();
     return;
   }
-  
-  // Scan ke server
-  call('kioskScan', S.token, S.sesi.id, [{ id: id, sumber: sumber, t: Date.now() }])
+
+  // 3. Tidak ada di data lokal (mis. jamaah baru didaftarkan) → tanya server, tampilkan "Memproses"
+  bunyi('scan');
+  show($('vProses'), true);
+  apiCall('kioskScan', [S.token, S.sesi.id, [{ id: id, sumber: sumber, t: Date.now() }]], SCAN_TIMEOUT_MS)
     .then(res => {
-      S.hadir = res.hadir;
-      $('ftHadir').textContent = S.hadir;
-      
-      if (res.hasil && res.hasil.length > 0) {
-        var r = res.hasil[0];
-        if (r.status === 'baru') {
-          S.sudah[id] = r.jam;
-          showHasilBerhasil(id, nama, r.jam);
-        } else if (r.status === 'sudah') {
-          showHasilSudah(id, r.jam);
-        } else {
-          showHasilTidakDikenal(id);
-        }
+      show($('vProses'), false);
+      var r = (res.hasil || [])[0];
+      if (r && (r.status === 'baru' || r.status === 'sudah')) {
+        if (r.nama) S.jamaah[id] = r.nama;
+        S.sudah[id] = r.jam || jamSekarang();
+        setHadirServer(res.hadir);
+        if (r.status === 'baru') { bunyi('ok'); showHasilBerhasil(id, r.nama || id, S.sudah[id]); }
+        else { bunyi('sudah'); showHasilSudah(id, S.sudah[id]); }
       } else {
+        bunyi('err');
         showHasilTidakDikenal(id);
       }
-      
-      setTimeout(() => { S.lockScan = false; }, 3000);
     })
     .catch(e => {
-      console.error('Scan error:', e);
-      // Offline: simpan ke antrean
-      S.offline.push({ id: id, sumber: sumber, t: Date.now() });
-      showHasilBerhasil(id, nama, jamSekarang());
-      setTimeout(() => { S.lockScan = false; }, 3000);
+      show($('vProses'), false);
+      bunyi('err');
+      if (e.server && !ERR_PERMANEN.test(e.message) && !/sibuk/i.test(e.message)) showHasilTidakDikenal(id);
+      else showHasilGagal(e.message);
     });
 }
 
 // ===== TAMPILAN HASIL =====
-function showHasilBerhasil(id, nama, jam) {
-  var panel = $('hasilPanel');
-  panel.className = 'hasil-panel ok';
-  $('hasilIc').textContent = '✓';
-  $('hasilNama').textContent = nama;
-  $('hasilSt').textContent = 'Hadir · tercatat ' + jam;
-  $('hasilSub').textContent = 'Jazakallahu khoiro, silakan masuk.';
+function tampilHasil(kelas, ic, judul, st, sub) {
+  $('hasilPanel').className = 'hasil-panel ' + kelas;
+  $('hasilIc').textContent = ic;
+  $('hasilNama').textContent = judul;
+  $('hasilSt').textContent = st;
+  $('hasilSub').textContent = sub;
   show($('vHasil'), true);
-  countdown(3);
+  countdown(HASIL_DETIK);
+}
+
+function showHasilBerhasil(id, nama, jam) {
+  tampilHasil('ok', '✓', nama, 'Hadir · tercatat ' + jam, 'Jazakallahu khoiro, silakan masuk.');
 }
 
 function showHasilSudah(id, jam) {
-  var panel = $('hasilPanel');
-  panel.className = 'hasil-panel navy';
-  $('hasilIc').textContent = '⌛';
-  $('hasilNama').textContent = 'Sudah tercatat';
-  $('hasilSt').textContent = 'Pukul ' + jam;
-  $('hasilSub').textContent = 'Tidak perlu scan lagi. Silakan masuk.';
-  show($('vHasil'), true);
-  countdown(3);
+  var nama = S.jamaah[id];
+  tampilHasil('navy', '⌛', 'Sudah tercatat', (nama ? nama + ' · ' : '') + 'pukul ' + jam, 'Tidak perlu scan lagi. Silakan masuk.');
 }
 
 function showHasilTidakDikenal(id) {
-  var panel = $('hasilPanel');
-  panel.className = 'hasil-panel err';
-  $('hasilIc').textContent = '⚠';
-  $('hasilNama').textContent = 'Kartu belum dikenali';
-  $('hasilSt').textContent = '';
-  $('hasilSub').textContent = 'Silakan ke petugas di meja absensi.';
-  show($('vHasil'), true);
-  countdown(3);
+  tampilHasil('err', '⚠', 'Kartu belum dikenali', '', 'Silakan ke petugas di meja absensi.');
 }
 
+function showHasilGagal(pesan) {
+  var tutup = /SESI_DITUTUP|ditutup/i.test(pesan || '');
+  tampilHasil('err', '⚠', tutup ? 'Presensi sudah ditutup' : 'Koneksi bermasalah',
+    '', tutup ? 'Silakan ke petugas di meja absensi.' : 'Silakan scan ulang sebentar lagi, atau ke petugas di meja absensi.');
+}
+
+// Satu timer saja → hasil scan berikutnya tidak bentrok dengan hitungan mundur sebelumnya
 function countdown(s) {
+  clearTimeout(S.hasilTimer);
   $('countdown').textContent = s;
   if (s > 0) {
-    setTimeout(() => { countdown(s - 1); }, 1000);
+    S.hasilTimer = setTimeout(() => countdown(s - 1), 1000);
   } else {
     show($('vHasil'), false);
+    S.lockScan = false;   // siap scan berikutnya
   }
 }
 
@@ -524,15 +710,16 @@ function startPolling() {
       .then(res => {
         S.verServer = res.ver;
         if (!res.sama) {
-          S.hadir = res.hadir || S.hadir;
-          $('ftHadir').textContent = S.hadir;
           if (res.sudah) S.sudah = res.sudah;
+          gabungAntrean();
+          setHadirServer(res.hadir);
         }
+        kirimAntrean();   // jaring pengaman: coba kirim lagi yang tertunda
         if (res.status !== 'Terbuka') {
-          // Sesi ditutup
-          show($('main'), false);
-          show($('vTerkunci'), true);
+          // Sesi ditutup → kembali ke layar terkunci; loadInfo() akan cek ulang tiap 20 detik
           stopCamera();
+          loadInfo();
+          return;
         }
         startPolling();
       })
@@ -545,6 +732,7 @@ function startPolling() {
 
 // ===== EVENT LISTENERS =====
 $('btnLogin').addEventListener('click', doLogin);
+$('queueBadge').addEventListener('click', lihatGagal);
 $('pinInput').addEventListener('keypress', e => {
   if (e.key === 'Enter') doLogin();
 });

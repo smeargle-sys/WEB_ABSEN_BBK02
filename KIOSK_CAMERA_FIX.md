@@ -99,3 +99,49 @@ scanning: false,
 - [ ] Tolak izin: muncul pesan "Izin kamera ditolak" dan tombol "Coba lagi"
 - [ ] Sesi ditutup lalu dibuka lagi: kamera menyala kembali otomatis
 - [ ] Scan kartu QR: hasil scan muncul
+
+---
+
+# Iterasi 2: Respons Scan Lambat & Tanpa Feedback
+
+**Perangkat uji:** Huawei MatePad SE 11, kamera depan (fixed-focus)
+
+## Temuan
+
+1. **Layar diam saat menunggu server.** Setelah QR terbaca, kiosk memanggil Apps Script tanpa indikator apa pun. Apps Script butuh 1,5–4 detik, dan 5–10 detik saat *cold start* atau saat terkunci oleh `withLock_`. Jamaah tidak tahu apakah scan sedang diproses, berhasil, atau gagal.
+2. **Bug data hilang.** Jika request gagal, layar tetap menampilkan "✓ Hadir", dan data masuk ke `S.offline`, yang **tidak pernah dikirim ulang**. Jamaah merasa sudah absen, padahal tidak tercatat.
+3. **`fetch` tanpa timeout**, sehingga request bisa menggantung lama.
+4. **Deteksi QR lambat di tablet.** Kamera depan fixed-focus membuat QR buram pada jarak ±15 cm. Library memindai semua jenis barcode di setiap frame, dan resolusi video bawaan rendah.
+5. Beberapa hasil scan beruntun memicu beberapa `countdown()` sekaligus, sehingga overlay bisa tertutup terlalu cepat.
+6. Setelah sesi ditutup lalu dibuka lagi, layar utama tidak kembali muncul.
+
+## Perbaikan
+
+| Area | Perubahan |
+|---|---|
+| Feedback | Getar, bingkai kamera berkedip hijau, dan bunyi Web Audio yang berbeda: berhasil (2 nada naik), sudah tercatat (2 nada sama), error (2 nada rendah) |
+| Respons | **Optimistic**: jika ID ada di data lokal, nama dan "Hadir ✓" tampil seketika, lalu data dikirim di belakang |
+| Kartu tak dikenal lokal | Muncul overlay "Kartu terbaca · Sedang memproses…", lalu kiosk bertanya ke server dengan timeout 8 detik (misalnya untuk jamaah yang baru didaftarkan) |
+| Antrean | Disimpan di `localStorage` (aman walau halaman di-refresh), dikirim per batch (maks 50), retry dengan jeda 3→30 detik, dan dikirim juga saat `online` serta setiap polling |
+| Gagal permanen | Contohnya sesi ditutup atau ditolak server. Data masuk daftar **gagal** dan badge merah tampil di footer. Ketuk badge untuk melihat daftar dan menghapusnya |
+| Timeout | `apiCall()` dengan `AbortController` (default 20 detik, scan 8 detik, kirim antrean 15 detik) |
+| Scanner | Hanya format QR, `useBarCodeDetectorIfSupported`, resolusi ideal 1280×720, fps 15 |
+| Petunjuk | Jarak diubah menjadi ±25–30 cm, ditambah label di kamera "Letakkan QR di dalam kotak" |
+| Hasil | Satu timer untuk overlay; `lockScan` dilepas saat overlay ditutup |
+| Sesi ditutup | Polling memanggil `loadInfo()`, sehingga layar terkunci tampil dan kamera menyala lagi otomatis saat sesi dibuka |
+| Backend | `kioskScan`: `indexBy_(getMaster_())` dipindah keluar loop. **Perlu deploy ulang Apps Script** |
+
+## Catatan
+
+- **Bunyi** baru aktif setelah ada sentuhan pertama di layar (aturan autoplay browser). Setelah kiosk dibuka, ketuk layar sekali.
+- `BarcodeDetector` hanya tersedia di Chrome Android dengan Google Play Services. Di perangkat Huawei tanpa GMS, library otomatis memakai decoder JS, yang tetap lebih cepat karena sekarang hanya memindai QR.
+- Risiko pola optimistic: jika server menolak (jarang), layar sudah sempat menampilkan "Hadir". Kasus ini tercatat di badge **gagal** untuk ditindaklanjuti petugas.
+
+### Checklist uji iterasi 2
+
+- [ ] Scan kartu dikenal: bunyi, nama tampil < 1 detik, footer "Hadir" bertambah
+- [ ] Scan ulang kartu yang sama: "Sudah tercatat" + nama
+- [ ] Matikan Wi-Fi, scan: tetap "Hadir", badge "1 data menunggu". Nyalakan Wi-Fi: badge hilang, data masuk sheet
+- [ ] Refresh halaman saat ada antrean: antrean tetap ada lalu terkirim
+- [ ] Scan kartu yang tidak terdaftar: overlay "Memproses…", lalu "Kartu belum dikenali"
+- [ ] Tutup sesi dari admin, lalu buka lagi: kiosk kembali ke layar scan otomatis

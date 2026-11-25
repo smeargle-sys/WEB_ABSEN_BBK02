@@ -967,9 +967,9 @@ const API = {
       const result = simpanAbsen_(s, changes, p);
       // Respons ringkas untuk kiosk: hanya hasil per item + hadir total (tidak ada terlambat, tidak ada daftar seluruh jamaah)
       const hadir = Object.keys(result.absen || {}).filter(id => result.absen[id] === ST.H).length;
+      const master = indexBy_(getMaster_(), 'id');   // sekali saja, bukan per item
       const hasil = items.map(x => {
         const id = String(x.id || '').trim().toUpperCase();
-        const master = indexBy_(getMaster_(), 'id');
         const j = master[id];
         let st = 'ditolak';
         if (result.ditolak.indexOf(id) >= 0) st = 'ditolak';
