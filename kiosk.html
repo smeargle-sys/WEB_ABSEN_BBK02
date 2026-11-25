@@ -558,8 +558,12 @@ if (navigator.wakeLock) {
   requestWakeLock();
 }
 
-// Mulai
-init();
+// Mulai - wait for DOM ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
 </script>
 </body>
 </html>
