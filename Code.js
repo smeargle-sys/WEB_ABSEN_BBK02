@@ -74,7 +74,7 @@ const DEFAULT_SET = [
   ['Batas Tepat Waktu', '19:45', 'Hadir SETELAH jam ini dicatat TERLAMBAT (tetap dihitung hadir). Format JJ:MM'],
   ['Jam Tutup Sesi', '23:59', 'Sesi ditutup otomatis jam ini — yang tidak tercatat = Alpa (format JJ:MM, harus setelah jam buka)'],
   ['Batas Sering Terlambat (%)', 50, 'Filter dashboard "Sering Terlambat": jamaah yang terlambat pada >= persen ini dari kehadirannya'],
-  ['Batas Alpa Beruntun', 3, 'Label "alpa N× beruntun" (aplikasi admin) & sorotan merah (tab Dashboard) muncul jika jamaah alpa berturut-turut pada minimal sekian sesi terakhir dalam periode'],
+  ['Batas Alpa Beruntun', 3, 'Label "alpa N× beruntun" (aplikasi admin) & sorotan merah (tab Dashboard) muncul jika rangkaian alpa berturut-turut TERPANJANG jamaah dalam periode mencapai angka ini'],
   ['Izin Dihitung Hadir', 'TIDAK', 'TIDAK = izin tercatat & dihitung sebagai sesi wajib (mengurangi %). YA = izin dianggap hadir'],
   ['Daftar Keterangan Sesi', 'Pengajian rutin, Pengajian Lansia, Pengajian Remaja, ASAD', 'Pilihan keterangan sesi, pisahkan dengan koma. Pilihan PERTAMA dipakai untuk sesi yang dibuka otomatis. Muncul sebagai dropdown di aplikasi & tab Sesi'],
 ];
@@ -1117,14 +1117,16 @@ function hitungRekap_(sesiList, absen, o) {
   const jamaah = Object.keys(J).map(k => {
     const j = J[k];
     const p = pct(j.num, j.den);
-    j.seq.sort((a, b) => b.t.localeCompare(a.t));
-    let beruntun = 0;
-    for (let i = 0; i < j.seq.length; i++) {
-      const x = j.seq[i];
-      if (x.st === ST.X) continue;
-      if (x.st === ST.H || x.st === ST.I) break;
-      beruntun++;
-    }
+    // Alpa beruntun = rangkaian alpa berturut-turut TERPANJANG dalam periode (bukan hanya dari sesi terakhir).
+    // Hadir/Izin memutus rangkaian; sesi Dikecualikan dilewati (tidak menambah & tidak memutus).
+    j.seq.sort((a, b) => a.t.localeCompare(b.t));
+    let beruntun = 0, jalan = 0;
+    j.seq.forEach(x => {
+      if (x.st === ST.X) return;
+      if (x.st === ST.H || x.st === ST.I) { jalan = 0; return; }
+      jalan++;
+      if (jalan > beruntun) beruntun = jalan;
+    });
     return { id: j.id, nama: j.nama, jk: j.jk, hadir: j.hadir, telat: j.telat, pctTepat: pct(j.hadir - j.telat, j.hadir),
       izin: j.izin, alpa: j.alpa, kecuali: j.kecuali,
       dihitung: j.den, pct: p, beruntun: beruntun, kategori: kategori(p), num: j.num };
@@ -1408,7 +1410,7 @@ function renderDashboard_(sh, R, set, awal, akhir, jkLabel, tampil) {
     sh.getRange(jr + 2, 7, nJ, 2).setBackgrounds(bgT);
   }
   sh.getRange(jr + 3 + Math.max(nJ, 1), 2)
-    .setValue('* Alpa Beruntun = jumlah alpa berturut-turut pada sesi-sesi terakhir dalam periode (izin/hadir memutus hitungan); merah jika ≥ ' + set.alpaBeruntun + ' (atur di Pengaturan).  ' +
+    .setValue('* Alpa Beruntun = rangkaian alpa berturut-turut terpanjang dalam periode (izin/hadir memutus rangkaian); merah jika ≥ ' + set.alpaBeruntun + ' (atur di Pengaturan).  ' +
       'Terlambat = hadir setelah Batas Tepat Waktu (' + set.batasTepat + '); % Tepat Waktu = (Hadir − Terlambat) ÷ Hadir.')
     .setFontColor('#888888').setFontStyle('italic');
 }

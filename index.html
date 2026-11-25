@@ -1370,8 +1370,8 @@ function renderDashJamaah() {
     : '<div class="kosong">Tidak ada jamaah yang cocok.</div>';
   $('dashCatatan').textContent = D.filter === 'telat'
     ? 'Sering terlambat = ≥ ' + a.seringTelat + '% kehadirannya setelah batas ' + a.batasTepat + '.'
-    : 'Urut dari kehadiran terendah. Label "alpa N× beruntun" muncul bila alpa berturut-turut ≥ ' + (a.alpaBeruntun || 3) +
-      ' sesi terakhir dalam periode (hadir/izin memutus hitungan; atur di tab Pengaturan → Batas Alpa Beruntun).';
+    : 'Urut dari kehadiran terendah. Label "alpa N× beruntun" = rangkaian alpa berturut-turut terpanjang dalam periode, tampil bila ≥ ' +
+      (a.alpaBeruntun || 3) + ' (hadir/izin memutus rangkaian; atur di tab Pengaturan → Batas Alpa Beruntun).';
 }
 
 /* Grafik garis SVG: % per sesi (Total / Pria / Wanita) + garis ambang */
