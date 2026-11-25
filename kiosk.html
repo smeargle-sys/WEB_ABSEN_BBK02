@@ -55,7 +55,7 @@
   .cam-box { background: #000; border-radius: 16px; overflow: hidden; aspect-ratio: 4/3; margin-bottom: 16px; position: relative; }
   #reader { width: 100%; height: 100%; }
   #reader video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
-  .cam-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 16px; font-weight: 600; }
+  .cam-hint { position: absolute; inset: 0; pointer-events: none; text-align: center; padding: 20px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 16px; font-weight: 600; }
   .cam-status { font-size: 12px; color: var(--mut); text-align: center; padding: 8px; }
   
   /* ===== PESAN (kanan) ===== */
@@ -206,7 +206,7 @@ var SYNC_MS = 15000;   // polling 15 detik
 
 var S = {
   token: null, pin: '', petugas: null, sesi: null, jamaah: {}, sudah: {}, hadir: 0, offline: [],
-  scanning: true, lockScan: false, timer: null, lastQR: '', lastQRTime: 0,
+  scanning: false, lockScan: false, timer: null, lastQR: '', lastQRTime: 0,
   ver: VERSI_APP, verServer: VERSI_APP,
 };
 
@@ -333,49 +333,73 @@ function startCamera() {
     return;
   }
   
+  if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    camGagal('Kamera butuh HTTPS atau localhost, dan browser yang mendukung kamera (bukan preview di editor).');
+    return;
+  }
+
   S.scanning = true;
-  
+  $('camStatus').textContent = '⏳ Meminta izin kamera...';
+
+  // Jika izin tidak pernah dijawab / browser menahan permintaan, beri tahu setelah 10 detik
+  var tunggu = setTimeout(() => {
+    if (!S.camAktif) $('camStatus').textContent = '⏳ Menunggu izin kamera — klik "Allow" di browser. Jika tidak muncul, buka di Chrome/Safari.';
+  }, 10000);
+
+  var scanCfg = { fps: 10, qrbox: (w, h) => { var s = Math.floor(Math.min(w, h) * 0.7); return { width: s, height: s }; } };
+
   Html5Qrcode.getCameras().then(cameras => {
-    var selectedCamera = null;
-    if (cameras && cameras.length > 0) {
-      // Cari kamera depan
-      var front = cameras.find(c => /front|user|depan/i.test(c.label));
-      selectedCamera = front ? front.id : cameras[0].id;
+    var kandidat = [];
+    if (cameras && cameras.length) {
+      var front = cameras.find(c => /front|user|depan|facetime/i.test(c.label));
+      kandidat.push((front || cameras[0]).id);
     }
-    
-    var html5QrcodeScanner = new Html5Qrcode(
-      'reader',
-      { fps: 10, qrbox: { width: 250, height: 250 }, facingMode: 'user' }
-    );
-    
-    html5QrcodeScanner.start(
-      selectedCamera || { facingMode: 'user' },
-      { fps: 10, qrbox: { width: 250, height: 250 } },
-      onQRDetect,
-      onQRError
-    ).catch(e => {
-      console.warn('Camera start failed with strict constraints, trying relaxed:', e.message);
-      // Retry dengan constraint lebih relaxed
-      html5QrcodeScanner.start(
-        selectedCamera || { facingMode: 'user' },
-        { fps: 5, qrbox: 150 },
-        onQRDetect,
-        onQRError
-      ).catch(e2 => {
-        console.error('Camera start error (relaxed):', e2.message || e2);
-        alert('Kamera error: ' + (e2.message || e2));
-        $('camStatus').textContent = '❌ Kamera error: ' + (e2.message || e2);
-        S.scanning = false;
-      });
-    });
-    
-    S.qrScanner = html5QrcodeScanner;
+    kandidat.push({ facingMode: 'user' }, { facingMode: 'environment' });
+    if (cameras) cameras.forEach(c => { if (kandidat.indexOf(c.id) < 0) kandidat.push(c.id); });
+
+    var scanner = new Html5Qrcode('reader', { verbose: false });
+    S.qrScanner = scanner;
+
+    function coba(i, errTerakhir) {
+      if (i >= kandidat.length) return Promise.reject(errTerakhir || new Error('Tidak ada kamera yang bisa dibuka'));
+      return scanner.start(kandidat[i], scanCfg, onQRDetect, onQRError)
+        .catch(e => {
+          console.warn('Kamera gagal dengan', kandidat[i], e);
+          return coba(i + 1, e);
+        });
+    }
+    return coba(0);
+  }).then(() => {
+    clearTimeout(tunggu);
+    S.camAktif = true;
+    show($('camHint'), false);
+    $('camStatus').textContent = '✅ Kamera aktif · menunggu scan...';
   }).catch(e => {
-    console.error('Get cameras error:', e.message || e);
-    alert('Tidak bisa akses kamera: ' + (e.message || e) + '\n\nPastikan:\n1. Browser allow camera\n2. Gunakan HTTPS atau localhost\n3. Refresh halaman');
-    $('camStatus').textContent = '❌ Akses kamera ditolak';
-    S.scanning = false;
+    clearTimeout(tunggu);
+    console.error('Kamera error:', e);
+    var msg = (e && (e.name || e.message)) || String(e);
+    if (/NotAllowed|Permission/i.test(msg)) msg = 'Izin kamera ditolak. Izinkan kamera di pengaturan situs browser lalu refresh.';
+    else if (/NotFound|DevicesNotFound/i.test(msg)) msg = 'Kamera tidak ditemukan.';
+    else if (/NotReadable|TrackStart|in use/i.test(msg)) msg = 'Kamera sedang dipakai aplikasi lain (Zoom/Meet/FaceTime). Tutup lalu refresh.';
+    camGagal(msg);
   });
+}
+
+function camGagal(msg) {
+  S.scanning = false;
+  S.camAktif = false;
+  show($('camHint'), true);
+  $('camHint').textContent = '❌ ' + msg;
+  $('camStatus').innerHTML = '❌ ' + esc(msg) + ' <button onclick="startCamera()" style="margin-left:8px">Coba lagi</button>';
+}
+
+function stopCamera() {
+  var sc = S.qrScanner;
+  S.qrScanner = null;
+  S.scanning = false;
+  S.camAktif = false;
+  show($('camHint'), true);
+  if (sc) sc.stop().then(() => sc.clear()).catch(() => {});
 }
 
 function onQRDetect(decodedText, decodedResult) {
@@ -508,7 +532,7 @@ function startPolling() {
           // Sesi ditutup
           show($('main'), false);
           show($('vTerkunci'), true);
-          if (S.qrScanner) S.qrScanner.stop();
+          stopCamera();
         }
         startPolling();
       })
