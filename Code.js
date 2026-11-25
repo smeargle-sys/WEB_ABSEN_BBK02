@@ -1072,7 +1072,7 @@ function hitungRekap_(sesiList, absen, o) {
 
   const J = {}, S = {}, B = {};
   sesiP.forEach(s => {
-    S[s.id] = { tanggal: s.tanggal, hari: s.hari || hariDari_(s.tanggal), ket: s.ket || '', hL: 0, hP: 0, telat: 0, izin: 0, alpa: 0, num: 0, den: 0 };
+    S[s.id] = { tanggal: s.tanggal, hari: s.hari || hariDari_(s.tanggal), ket: s.ket || '', hL: 0, hP: 0, telat: 0, izin: 0, alpa: 0, num: 0, den: 0, numL: 0, denL: 0, numP: 0, denP: 0 };
     const b = s.tanggal.slice(0, 7);
     if (!B[b]) B[b] = { bulan: b, sesi: 0, ket: {}, numL: 0, denL: 0, numP: 0, denP: 0, hadir: 0, telat: 0 };
     B[b].sesi++;
@@ -1096,6 +1096,7 @@ function hitungRekap_(sesiList, absen, o) {
     else if (st === ST.I) ss.izin++;
     else if (st !== ST.X) ss.alpa++;
     ss.num += v; ss.den += d;
+    if (r.jk === 'L') { ss.numL += v; ss.denL += d; } else { ss.numP += v; ss.denP += d; }
     const b = B[ss.tanggal.slice(0, 7)];
     if (r.jk === 'L') { b.numL += v; b.denL += d; } else { b.numP += v; b.denP += d; }
     if (st === ST.H) { b.hadir++; if (telat) b.telat++; }
@@ -1136,7 +1137,7 @@ function hitungRekap_(sesiList, absen, o) {
     telat: sum(jamaah, j => j.telat),
   };
   ringkas.pctTepat = pct(ringkas.hadir - ringkas.telat, ringkas.hadir);
-  const sesi = sesiP.map(s => { const x = S[s.id]; return Object.assign({}, x, { pct: pct(x.num, x.den) }); });
+  const sesi = sesiP.map(s => { const x = S[s.id]; return Object.assign({}, x, { pct: pct(x.num, x.den), pctL: pct(x.numL, x.denL), pctP: pct(x.numP, x.denP) }); });
   const bulan = Object.keys(B).sort().map(k => {
     const b = B[k];
     // "8 sesi: Pengajian rutin 5, Pengajian Lansia 2, ASAD 1" (dari kolom Keterangan di tab Sesi)
@@ -1312,8 +1313,9 @@ function renderDashboard_(sh, R, set, awal, akhir, jkLabel, tampil) {
   sh.setColumnWidth(16, 92);
   tabel_(sh, 10, 2, 'Rekap per Bulan', ['Bulan', 'Sesi & Keterangan', '% Total', '% Pria', '% Wanita', '% Terlambat'],
     R.bulan.map(b => [labelBulan_(b.bulan), b.sesiTeks, pv_(b.pct), pv_(b.pctL), pv_(b.pctP), pv_(b.pctTelat)]), [2, 3, 4, 5]);
-  tabel_(sh, 10, 8, 'Tren per Sesi', ['Tanggal', 'Hari', 'Keterangan', 'Hadir Pria', 'Hadir Wanita', 'Terlambat', 'Izin', 'Alpa', '% Kehadiran'],
-    R.sesi.map(s => [labelTgl_(s.tanggal, beda), s.hari, s.ket, s.hL, s.hP, s.telat, s.izin, s.alpa, pv_(s.pct)]), [8]);
+  sh.setColumnWidths(17, 2, 80);   // % Pria, % Wanita
+  tabel_(sh, 10, 8, 'Tren per Sesi', ['Tanggal', 'Hari', 'Keterangan', 'Hadir Pria', 'Hadir Wanita', 'Terlambat', 'Izin', 'Alpa', '% Kehadiran', '% Pria', '% Wanita'],
+    R.sesi.map(s => [labelTgl_(s.tanggal, beda), s.hari, s.ket, s.hL, s.hP, s.telat, s.izin, s.alpa, pv_(s.pct), pv_(s.pctL), pv_(s.pctP)]), [8, 9, 10]);
   if (R.sesi.length) sh.getRange(12, 10, R.sesi.length, 1).setWrap(true);
 
   if (R.sesi.length) {
@@ -1322,14 +1324,14 @@ function renderDashboard_(sh, R, set, awal, akhir, jkLabel, tampil) {
       const chart = sh.newChart()
         .setChartType(Charts.ChartType.LINE)
         .addRange(sh.getRange(11, 8, n + 1, 1))
-        .addRange(sh.getRange(11, 16, n + 1, 1))
+        .addRange(sh.getRange(11, 16, n + 1, 3))   // % Kehadiran, % Pria, % Wanita
         .setNumHeaders(1)
-        .setPosition(10, 18, 0, 0)
+        .setPosition(10, 20, 0, 0)                 // kolom T: di kanan tabel Tren per Sesi (H..R)
         .setOption('title', '% Kehadiran per Sesi')
-        .setOption('legend', { position: 'none' })
+        .setOption('legend', { position: 'bottom' })
         .setOption('pointSize', 5)
         .setOption('vAxis', { format: 'percent', viewWindow: { min: 0, max: 1 } })
-        .setOption('colors', ['#2e7d32'])
+        .setOption('colors', ['#2e7d32', '#1565c0', '#c2185b'])
         .setOption('width', 560)
         .setOption('height', 300)
         .build();
