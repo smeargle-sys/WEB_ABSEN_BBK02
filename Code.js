@@ -849,13 +849,21 @@ const API = {
     const p = auth_(token);
     if (!Array.isArray(changes) || !changes.length) return { tersimpan: 0, ditolak: [] };
     if (changes.length > 400) throw new Error('Terlalu banyak data dalam satu kali simpan');
-    return withLock_(() => {
+    let koreksi = false;
+    const res = withLock_(() => {
       const s = sesiBoleh_(p, sesiId);
       if (s.status === SESI_TUTUP && !p.admin) throw new Error('SESI_DITUTUP: Sesi sudah ditutup. Scan tidak bisa disimpan — hubungi Admin untuk koreksi.');
-      const res = simpanAbsen_(s, changes, p);
-      if (s.status === SESI_TUTUP) log_('Koreksi sesi ditutup', s.id + ' oleh ' + p.nama + ': ' + changes.map(c => c.id + '=' + (c.status || 'batal')).join(', '));
-      return res;
+      const r = simpanAbsen_(s, changes, p);
+      if (s.status === SESI_TUTUP) {
+        log_('Koreksi sesi ditutup', s.id + ' oleh ' + p.nama + ': ' + changes.map(c => c.id + '=' + (c.status || 'batal')).join(', ') + ' · tersimpan ' + r.tersimpan + (r.ditolak.length ? ' · ditolak ' + r.ditolak.join(',') : ''));
+        koreksi = r.tersimpan > 0;
+      }
+      return r;
     });
+    // Dashboard_Absensi berisi nilai (bukan rumus) dan hanya diperbarui otomatis selama ada sesi terbuka.
+    // Koreksi pada sesi yang sudah ditutup harus memperbarui Dashboard sendiri (di luar lock agar tidak menahan HP/kiosk lain).
+    if (koreksi) { try { refreshDashboard_(); } catch (e) { /* data tetap aman di tab Absensi */ } }
+    return res;
   },
   /** Dipanggil tiap ±15 dtk oleh setiap HP. Hanya mengirim data jika versi berubah. */
   sinkron: function (token, sesiId, verKlien) {
