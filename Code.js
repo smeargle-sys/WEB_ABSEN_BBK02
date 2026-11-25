@@ -785,6 +785,8 @@ function rekapPesan_(s) {
   const total = n.H + n.I + n.A;
   const pct = (a, b) => b ? (a / b * 100).toFixed(1).replace('.', ',') + '%' : '-';
   const hadirHitung = n.H + (set.izinHadir ? n.I : 0);
+  // % per jenis kelamin: aturan sama dengan % total (izin dihitung hadir bila diatur di Pengaturan)
+  const hadirL = n.HL + (set.izinHadir ? L.I.L.length : 0), hadirP = n.HP + (set.izinHadir ? L.I.P.length : 0);
   const ket = s.ket && s.ket.trim().toLowerCase() !== ketDefault_().toLowerCase() ? ' · ' + s.ket.trim() : '';
   const daftar = (arr) => arr.map((x, i) => (i + 1) + '. ' + x).join('\n');
   const perJK = (o) => {
@@ -798,7 +800,7 @@ function rekapPesan_(s) {
     (s.hari || hariDari_(s.tanggal)) + ', ' + labelTgl_(s.tanggal, false) + ' ' + s.tanggal.slice(0, 4) + ket,
     '',
     'Hadir: *' + n.H + '* dari ' + total + ' (' + pct(hadirHitung, total) + ')',
-    'Pria ' + n.HL + '/' + n.wL + ' · Wanita ' + n.HP + '/' + n.wP,
+    'Pria ' + n.HL + '/' + n.wL + ' (' + pct(hadirL, n.wL) + ') · Wanita ' + n.HP + '/' + n.wP + ' (' + pct(hadirP, n.wP) + ')',
     'Terlambat: ' + n.T + ' · Izin: ' + n.I + ' · Alpa: ' + n.A,
     '',
     '*Alpa (' + n.A + ')*', perJK(L.A),
