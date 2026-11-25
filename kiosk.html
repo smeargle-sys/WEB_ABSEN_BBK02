@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#D8001F">
 <title>Kiosk Presensi Mandiri</title>
 <script src="config.js" onerror="void 0"></script>
-<script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
   :root {
     --red:#ED0226; --red2:#B90024; --navy:#1F2A5A; --ok:#15803D; --okbg:#E9F7EE;
@@ -304,6 +304,14 @@ function loadInfo() {
 // ===== KAMERA =====
 function startCamera() {
   if (S.scanning || !S.token) return;
+  
+  // Check if html5-qrcode library is loaded
+  if (typeof Html5Qrcode === 'undefined') {
+    console.warn('Html5Qrcode not loaded yet, retrying in 500ms...');
+    setTimeout(startCamera, 500);
+    return;
+  }
+  
   S.scanning = true;
   
   Html5Qrcode.getCameras().then(cameras => {
