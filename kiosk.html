@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#D8001F">
 <title>Kiosk Presensi Mandiri</title>
 <script src="config.js" onerror="void 0"></script>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
   :root {
     --red:#ED0226; --red2:#B90024; --navy:#1F2A5A; --ok:#15803D; --okbg:#E9F7EE;
@@ -333,13 +333,22 @@ function startCamera() {
       onQRDetect,
       onQRError
     ).catch(e => {
-      console.error('Camera error:', e);
+      console.error('Camera start error:', e.message || e);
+      alert('Kamera error: ' + (e.message || e));
+      $('camStatus').textContent = '❌ Kamera error: ' + (e.message || e);
       S.scanning = false;
     });
     
     S.qrScanner = html5QrcodeScanner;
   }).catch(e => {
-    console.error('Get cameras error:', e);
+    console.error('Get cameras error:', e.message || e);
+    alert('Tidak bisa akses kamera: ' + (e.message || e) + '
+
+Pastikan:
+1. Browser allow camera
+2. Gunakan HTTPS atau localhost
+3. Refresh halaman');
+    $('camStatus').textContent = '❌ Akses kamera ditolak';
     S.scanning = false;
   });
 }
