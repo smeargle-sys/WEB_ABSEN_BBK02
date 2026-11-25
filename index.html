@@ -1363,14 +1363,15 @@ function renderDashJamaah() {
   $('dashJam').innerHTML = daftar.length ? daftar.slice(0, maks).map(function (j) {
     var sub = j.id + ' · ' + (j.jk === 'L' ? 'Pria' : 'Wanita') + ' · hadir ' + j.hadir + '/' + j.dihitung +
       (j.telat ? ' · telat ' + j.telat : '') + (j.izin ? ' · izin ' + j.izin : '') + ' · alpa ' + j.alpa;
-    var tag = j.beruntun >= 2 ? '<span class="tag telat">alpa ' + j.beruntun + '× beruntun</span>' : '';
+    var tag = j.beruntun >= (a.alpaBeruntun || 3) ? '<span class="tag telat">alpa ' + j.beruntun + '× beruntun</span>' : '';
     return '<div class="it"><div class="info"><div class="nm">' + esc(j.nama) + tag + '</div><div class="sub">' + esc(sub) + '</div></div>' +
       '<div class="kp ' + kelasKategori(j.kategori) + '"><span class="num">' + pctTxt(j.pct) + '</span><small>' + esc(j.kategori) + '</small></div></div>';
   }).join('') + (daftar.length > maks ? '<div class="kosong">Menampilkan ' + maks + ' teratas — gunakan pencarian untuk yang lain.</div>' : '')
     : '<div class="kosong">Tidak ada jamaah yang cocok.</div>';
   $('dashCatatan').textContent = D.filter === 'telat'
     ? 'Sering terlambat = ≥ ' + a.seringTelat + '% kehadirannya setelah batas ' + a.batasTepat + '.'
-    : 'Urut dari kehadiran terendah. "Alpa beruntun" = alpa berturut-turut pada sesi terakhir.';
+    : 'Urut dari kehadiran terendah. Label "alpa N× beruntun" muncul bila alpa berturut-turut ≥ ' + (a.alpaBeruntun || 3) +
+      ' sesi terakhir dalam periode (hadir/izin memutus hitungan; atur di tab Pengaturan → Batas Alpa Beruntun).';
 }
 
 /* Grafik garis SVG: % per sesi (Total / Pria / Wanita) + garis ambang */
