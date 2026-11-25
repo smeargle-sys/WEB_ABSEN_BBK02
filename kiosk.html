@@ -342,12 +342,7 @@ function startCamera() {
     S.qrScanner = html5QrcodeScanner;
   }).catch(e => {
     console.error('Get cameras error:', e.message || e);
-    alert('Tidak bisa akses kamera: ' + (e.message || e) + '
-
-Pastikan:
-1. Browser allow camera
-2. Gunakan HTTPS atau localhost
-3. Refresh halaman');
+    alert('Tidak bisa akses kamera: ' + (e.message || e) + '\n\nPastikan:\n1. Browser allow camera\n2. Gunakan HTTPS atau localhost\n3. Refresh halaman');
     $('camStatus').textContent = '❌ Akses kamera ditolak';
     S.scanning = false;
   });
