@@ -92,11 +92,31 @@
     .hasil-nama { font-size: 28px; }
     .hasil-ic { font-size: 44px; }
   }
+
+  /* ===== LOADING ===== */
+  #vLoading { position: fixed; inset: 0; background: linear-gradient(135deg, var(--red), var(--red2));
+              display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 200;
+              color: #fff; }
+  .loading-box { text-align: center; }
+  .loading-box h2 { margin: 0 0 24px; font-size: 28px; }
+  .spinner { width: 60px; height: 60px; border: 4px solid rgba(255,255,255,0.3); border-top-color: #fff;
+             border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 14px; opacity: 0.9; margin-top: 20px; }
 </style>
 </head>
 <body>
 
 <!-- LOGIN KIOSK (hanya sekali di awal) -->
+<!-- LOADING SCREEN -->
+<div id="vLoading">
+  <div class="loading-box">
+    <h2>Memuat Kiosk...</h2>
+    <div class="spinner"></div>
+    <div class="loading-text">Silakan tunggu...</div>
+  </div>
+</div>
+
 <div id="vLogin" class="hide">
   <div class="login-box">
     <h1>Kiosk Presensi</h1>
@@ -254,6 +274,7 @@ function doLogin() {
 
 // ===== MULAI APLIKASI =====
 function start() {
+  show($("vLoading"), false);  // Hide loading
   updateTime();
   loadInfo();
 }
@@ -497,6 +518,7 @@ $('pinInput').addEventListener('keypress', e => {
 
 // ===== STARTUP =====
 function init() {
+  show($("vLoading"), true);  // Show loading indicator
   var token = localStorage.getItem('absen_bbk02_kiosk_token');
   var pin = localStorage.getItem('absen_bbk02_kiosk_pin');
   
@@ -511,6 +533,7 @@ function init() {
     show($('vTerkunci'), false);
     show($('hdr'), false);
     show($('ft'), false);
+  show($("vLoading"), false);  // Hide loading
   }
 }
 
