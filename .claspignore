@@ -1,0 +1,6 @@
+# Hanya file backend Apps Script yang di-push.
+# kiosk.html & config.js khusus GitHub Pages (config.js memakai `window` → error di Apps Script).
+**/**
+!Code.js
+!Index.html
+!appsscript.json
