@@ -920,9 +920,10 @@ const API = {
     const sesiBulanIni = getSesiList_().filter(x => x.tanggal.startsWith(today.slice(0, 7))).sort((a, b) => b.tanggal.localeCompare(a.tanggal));
     const sesiHari = sesiBulanIni.find(x => x.tanggal === today);
     const set = getSettings_();
-    let hadir = 0, sudah = {};
+    let hadir = 0, sudah = {}, verData = 0;
     if (sesiHari && sesiHari.status === SESI_BUKA) {
       const snap = getAbsenSesi_(sesiHari.id);
+      verData = snap.ver;
       Object.keys(snap.absen).forEach(id => {
         if (snap.absen[id] === ST.H) {
           hadir++;
@@ -940,6 +941,7 @@ const API = {
       hadir: hadir,
       sudah: sudah,
       ver: VERSI_SERVER,
+      verData: verData,
     };
   },
   /**
@@ -990,8 +992,10 @@ const API = {
     if (!p.kiosk) throw new Error('PIN ini bukan akun kiosk.');
     const s = getSesiList_().find(x => x.id === sesiId);
     if (!s) return { ver: VERSI_SERVER, status: 'tidak_ada', sama: true };
-    if (verKlien && VERSI_SERVER === verKlien && s.status !== SESI_TUTUP) return { ver: VERSI_SERVER, sama: true, status: s.status };
-    const snap = getAbsenSesi_(sesiId);
+    // verKlien = versi DATA absen sesi (snap.ver, berubah tiap ada simpan dari kiosk/petugas mana pun),
+    // bukan VERSI_SERVER (versi aplikasi, konstan) — dulu memakai VERSI_SERVER sehingga antar-tablet tidak pernah sinkron.
+    const snap = getAbsenSesi_(sesiId);   // dari cache; murah
+    if (verKlien && snap.ver === verKlien) return { ver: VERSI_SERVER, verData: snap.ver, sama: true, status: s.status };
     const hadir = Object.keys(snap.absen || {}).filter(id => snap.absen[id] === ST.H).length;
     const sudah = {};
     Object.keys(snap.absen || {}).forEach(id => {
@@ -999,7 +1003,7 @@ const API = {
         sudah[id] = snap.info[id][0];   // jam hadir
       }
     });
-    return { ver: VERSI_SERVER, status: s.status, hadir: hadir, sudah: sudah };
+    return { ver: VERSI_SERVER, verData: snap.ver, status: s.status, hadir: hadir, sudah: sudah };
   },
 };
 

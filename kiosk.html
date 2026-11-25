@@ -223,12 +223,12 @@
 // ===== KONFIGURASI =====
 var API_URL = (window.ABSEN_CONFIG && window.ABSEN_CONFIG.API_URL) || '';
 var VERSI_APP = 22;
-var SYNC_MS = 15000;   // polling 15 detik
+var SYNC_MS = 10000;   // polling 10 detik (antar-tablet sinkron)
 
 var S = {
   token: null, pin: '', petugas: null, sesi: null, jamaah: {}, sudah: {}, hadir: 0,
   scanning: false, lockScan: false, timer: null, lastQR: '', lastQRTime: 0,
-  ver: VERSI_APP, verServer: VERSI_APP,
+  ver: VERSI_APP, verServer: VERSI_APP, verData: 0,
   antrean: [], gagal: [], mengirim: false, retryMs: 0, kirimTimer: null, hasilTimer: null,
 };
 var KEY_ANTREAN = 'absen_bbk02_kiosk_antrean';
@@ -456,6 +456,7 @@ function loadInfo() {
     S.sesi = res.sesi;
     S.sudah = res.sudah || {};
     S.verServer = res.ver;
+    S.verData = res.verData || 0;
     gabungAntrean();
     setHadirServer(res.hadir || 0);
     updateBadge();
@@ -706,9 +707,10 @@ function startPolling() {
   clearTimeout(S.syncTimer);
   S.syncTimer = setTimeout(() => {
     if (!S.sesi) return;
-    call('kioskSinkron', S.token, S.sesi.id, S.verServer)
+    call('kioskSinkron', S.token, S.sesi.id, S.verData)
       .then(res => {
         S.verServer = res.ver;
+        if (res.verData) S.verData = res.verData;
         if (!res.sama) {
           if (res.sudah) S.sudah = res.sudah;
           gabungAntrean();
