@@ -354,10 +354,19 @@ function startCamera() {
       onQRDetect,
       onQRError
     ).catch(e => {
-      console.error('Camera start error:', e.message || e);
-      alert('Kamera error: ' + (e.message || e));
-      $('camStatus').textContent = '❌ Kamera error: ' + (e.message || e);
-      S.scanning = false;
+      console.warn('Camera start failed with strict constraints, trying relaxed:', e.message);
+      // Retry dengan constraint lebih relaxed
+      html5QrcodeScanner.start(
+        selectedCamera || { facingMode: 'user' },
+        { fps: 5, qrbox: 150 },
+        onQRDetect,
+        onQRError
+      ).catch(e2 => {
+        console.error('Camera start error (relaxed):', e2.message || e2);
+        alert('Kamera error: ' + (e2.message || e2));
+        $('camStatus').textContent = '❌ Kamera error: ' + (e2.message || e2);
+        S.scanning = false;
+      });
     });
     
     S.qrScanner = html5QrcodeScanner;
