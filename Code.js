@@ -74,7 +74,7 @@ const DEFAULT_SET = [
   ['Batas Tepat Waktu', '19:45', 'Hadir SETELAH jam ini dicatat TERLAMBAT (tetap dihitung hadir). Format JJ:MM'],
   ['Jam Tutup Sesi', '23:59', 'Sesi ditutup otomatis jam ini — yang tidak tercatat = Alpa (format JJ:MM, harus setelah jam buka)'],
   ['Batas Sering Terlambat (%)', 50, 'Filter dashboard "Sering Terlambat": jamaah yang terlambat pada >= persen ini dari kehadirannya'],
-  ['Batas Alpa Beruntun', 3, 'Label "alpa N× beruntun" (aplikasi admin) & sorotan merah (tab Dashboard) muncul jika rangkaian alpa berturut-turut TERPANJANG jamaah dalam periode mencapai angka ini'],
+  ['Batas Alpa Beruntun', 3, 'Label "pernah alpa N× berturut-turut" (aplikasi admin) & sorotan merah (tab Dashboard) muncul jika rangkaian alpa berturut-turut TERPANJANG jamaah dalam periode mencapai angka ini (jumlah sesi)'],
   ['Izin Dihitung Hadir', 'TIDAK', 'TIDAK = izin tercatat & dihitung sebagai sesi wajib (mengurangi %). YA = izin dianggap hadir'],
   ['Daftar Keterangan Sesi', 'Pengajian rutin, Pengajian Lansia, Pengajian Remaja, ASAD', 'Pilihan keterangan sesi, pisahkan dengan koma. Pilihan PERTAMA dipakai untuk sesi yang dibuka otomatis. Muncul sebagai dropdown di aplikasi & tab Sesi'],
 ];
@@ -1397,14 +1397,14 @@ function renderDashboard_(sh, R, set, awal, akhir, jkLabel, tampil) {
     : tampil === 'Sering Terlambat' ? 'Rekap per Jamaah — Sering Terlambat (≥ ' + set.seringTelat + '% kehadirannya terlambat): ' + nJ + ' dari ' + totalJ + ' jamaah'
     : 'Rekap per Jamaah — Kurang & Perlu Perhatian: ' + nJ + ' dari ' + totalJ + ' jamaah (urut dari kehadiran terendah)';
   tabel_(sh, jr, 2, judulJ,
-    ['No', 'ID', 'Nama', 'JK', 'Hadir', 'Terlambat', '% Tepat Waktu', 'Izin', 'Alpa', 'Dikecualikan', 'Sesi Dihitung', '% Kehadiran', 'Alpa Beruntun*', 'Kategori'],
+    ['No', 'ID', 'Nama', 'JK', 'Hadir', 'Terlambat', '% Tepat Waktu', 'Izin', 'Alpa', 'Dikecualikan', 'Sesi Dihitung', '% Kehadiran', 'Alpa Berturut-turut (terpanjang)*', 'Kategori'],
     rows, [6, 11]);
   if (nJ) {
     const warna = { 'Kurang': '#fde2e1', 'Perlu Perhatian': '#fff4ce', 'Baik': '#e6f4ea', 'Dikecualikan': '#eeeeee' };
     const bg = R.jamaah.map(j => { const c = warna[j.kategori] || '#ffffff'; return [c, c, c]; });
     sh.getRange(jr + 2, 13, nJ, 3).setBackgrounds(bg);   // % Kehadiran, Alpa Beruntun, Kategori
     sh.getRange(jr + 2, 15, nJ, 1).setFontWeight('bold');
-    // Alpa Beruntun (kolom N) >= batas di Pengaturan -> merah tebal
+    // Alpa berturut-turut terpanjang (kolom N) >= batas di Pengaturan -> merah tebal
     sh.getRange(jr + 2, 14, nJ, 1).setFontColors(R.jamaah.map(j => [j.beruntun >= set.alpaBeruntun ? '#c0392b' : '#000000']))
       .setFontWeights(R.jamaah.map(j => [j.beruntun >= set.alpaBeruntun ? 'bold' : 'normal']));
     // sorot ketertiban: kolom Terlambat & % Tepat Waktu kuning jika pernah terlambat
@@ -1412,7 +1412,7 @@ function renderDashboard_(sh, R, set, awal, akhir, jkLabel, tampil) {
     sh.getRange(jr + 2, 7, nJ, 2).setBackgrounds(bgT);
   }
   sh.getRange(jr + 3 + Math.max(nJ, 1), 2)
-    .setValue('* Alpa Beruntun = rangkaian alpa berturut-turut terpanjang dalam periode (izin/hadir memutus rangkaian); merah jika ≥ ' + set.alpaBeruntun + ' (atur di Pengaturan).  ' +
+    .setValue('* Alpa Berturut-turut (terpanjang) = rangkaian alpa berturut-turut terpanjang dalam periode (hadir/izin memutus rangkaian); merah jika ≥ ' + set.alpaBeruntun + ' sesi (atur di Pengaturan → Batas Alpa Beruntun).  ' +
       'Terlambat = hadir setelah Batas Tepat Waktu (' + set.batasTepat + '); % Tepat Waktu = (Hadir − Terlambat) ÷ Hadir.')
     .setFontColor('#888888').setFontStyle('italic');
 }

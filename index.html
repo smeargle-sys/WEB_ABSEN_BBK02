@@ -1363,15 +1363,16 @@ function renderDashJamaah() {
   $('dashJam').innerHTML = daftar.length ? daftar.slice(0, maks).map(function (j) {
     var sub = j.id + ' · ' + (j.jk === 'L' ? 'Pria' : 'Wanita') + ' · hadir ' + j.hadir + '/' + j.dihitung +
       (j.telat ? ' · telat ' + j.telat : '') + (j.izin ? ' · izin ' + j.izin : '') + ' · alpa ' + j.alpa;
-    var tag = j.beruntun >= (a.alpaBeruntun || 3) ? '<span class="tag telat">alpa ' + j.beruntun + '× beruntun</span>' : '';
-    return '<div class="it"><div class="info"><div class="nm">' + esc(j.nama) + tag + '</div><div class="sub">' + esc(sub) + '</div></div>' +
+    // Label di baris sendiri agar nama tidak terpotong; N = rangkaian alpa terpanjang, batas tampil dari Pengaturan
+    var tag = j.beruntun >= (a.alpaBeruntun || 3) ? '<div style="margin-top:3px"><span class="tag telat" style="margin-left:0">pernah alpa ' + j.beruntun + '× berturut-turut</span></div>' : '';
+    return '<div class="it"><div class="info"><div class="nm">' + esc(j.nama) + '</div><div class="sub">' + esc(sub) + '</div>' + tag + '</div>' +
       '<div class="kp ' + kelasKategori(j.kategori) + '"><span class="num">' + pctTxt(j.pct) + '</span><small>' + esc(j.kategori) + '</small></div></div>';
   }).join('') + (daftar.length > maks ? '<div class="kosong">Menampilkan ' + maks + ' teratas — gunakan pencarian untuk yang lain.</div>' : '')
     : '<div class="kosong">Tidak ada jamaah yang cocok.</div>';
   $('dashCatatan').textContent = D.filter === 'telat'
     ? 'Sering terlambat = ≥ ' + a.seringTelat + '% kehadirannya setelah batas ' + a.batasTepat + '.'
-    : 'Urut dari kehadiran terendah. Label "alpa N× beruntun" = rangkaian alpa berturut-turut terpanjang dalam periode, tampil bila ≥ ' +
-      (a.alpaBeruntun || 3) + ' (hadir/izin memutus rangkaian; atur di tab Pengaturan → Batas Alpa Beruntun).';
+    : 'Urut dari kehadiran terendah. Label "pernah alpa N× berturut-turut" muncul bila rangkaian alpa berturut-turut terpanjang dalam periode mencapai ' +
+      (a.alpaBeruntun || 3) + ' sesi atau lebih (hadir/izin memutus rangkaian). Batas ini bisa diubah di tab Pengaturan → Batas Alpa Beruntun.';
 }
 
 /* Grafik garis SVG: % per sesi (Total / Pria / Wanita) + garis ambang */
