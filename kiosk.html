@@ -70,10 +70,17 @@
   
   /* ===== PESAN (kanan) ===== */
   .msg-sec { flex: 1; display: flex; flex-direction: column; }
-  .msg-judul { font-size: 20px; font-weight: 700; margin-bottom: 20px; color: var(--navy); }
+  .msg-judul { font-size: 26px; font-weight: 800; margin-bottom: 18px; color: var(--navy); line-height: 1.25; }
   .msg-langkah { margin-bottom: 24px; }
-  .msg-langkah ol { margin: 0; padding-left: 24px; }
-  .msg-langkah li { margin: 8px 0; font-size: 15px; color: var(--ink); }
+  .msg-langkah ol { margin: 0; padding: 0; list-style: none; counter-reset: langkah; display: flex; flex-direction: column; gap: 12px; }
+  .msg-langkah li { counter-increment: langkah; display: flex; align-items: center; gap: 16px; background: #fff;
+                    border: 2px solid var(--bd); border-left: 6px solid var(--red); border-radius: 14px; padding: 14px 16px;
+                    font-size: 20px; font-weight: 700; color: var(--ink); line-height: 1.3; box-shadow: 0 2px 8px rgba(0,0,0,.05); }
+  .msg-langkah li::before { content: counter(langkah); flex: none; width: 44px; height: 44px; border-radius: 50%;
+                            background: var(--red); color: #fff; font-size: 22px; font-weight: 800;
+                            display: flex; align-items: center; justify-content: center; }
+  .msg-langkah li strong { color: var(--red2); white-space: nowrap; }
+  .msg-langkah li small { display: block; font-size: 14px; font-weight: 500; color: var(--mut); margin-top: 2px; }
   .msg-info { background: var(--latebg); border: 1px solid #FCD34D; border-radius: 12px; padding: 14px; font-size: 14px; color: #78350F; margin-top: 20px; }
   
   /* ===== HASIL SCAN ===== */
@@ -99,7 +106,8 @@
   @media (max-width: 768px) {
     main { flex-direction: column; gap: 16px; }
     .cam-sec, .msg-sec { flex: none; }
-    .msg-judul { font-size: 18px; }
+    .msg-judul { font-size: 22px; }
+    .msg-langkah li { font-size: 18px; }
     .hasil-nama { font-size: 28px; }
     .hasil-ic { font-size: 44px; }
   }
@@ -175,9 +183,9 @@
     <div class="msg-judul">Tunjukkan Kartu QR Anda ke Kamera</div>
     <div class="msg-langkah">
       <ol>
-        <li>Siapkan kartu QR presensi Anda</li>
-        <li>Hadapkan ke kamera dengan jarak <strong>±25–30 cm</strong> (jangan terlalu dekat agar tidak buram)</li>
-        <li>Tahan sampai terdengar bunyi “beep” dan nama Anda muncul</li>
+        <li><span>Siapkan <strong>kartu QR</strong> presensi Anda</span></li>
+        <li><span>Hadapkan ke kamera, jarak <strong>±25–30 cm</strong><small>Jangan terlalu dekat agar tidak buram</small></span></li>
+        <li><span>Tahan sampai bunyi <strong>“beep”</strong> &amp; nama Anda muncul</span></li>
       </ol>
     </div>
     <div class="msg-info">
