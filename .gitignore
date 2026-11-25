@@ -1,11 +1,7 @@
-# Clasp local files
+# Clasp local configuration (DO NOT COMMIT)
 .clasp.json
 
-# GitHub Pages only (JANGAN di Apps Script)
-config.js
-kiosk.html
-
-# IDE & OS
+# Local development
 .DS_Store
 .vscode/
 .idea/
@@ -13,6 +9,11 @@ kiosk.html
 *.swo
 *~
 
-# Deployment
+# Dependencies
 node_modules/
 *.log
+
+# NOTES:
+# kiosk.html dan config.js HARUS di-commit ke git (GitHub Pages)
+# Tapi JANGAN di-deploy ke Apps Script
+# Karena .gitignore tidak control Clasp, manual cleanup di Apps Script UI diperlukan
