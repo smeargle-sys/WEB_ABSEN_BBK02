@@ -239,6 +239,7 @@
   .kartu .kl { font-size:11px; color:var(--mut); }
   .kartu .ki { font-family:monospace; font-size:9px; color:var(--mut); }
   .kartu img { width:140px; height:140px; image-rendering:pixelated; }
+  .kartu .kbag { margin-top:8px; width:100%; padding:7px 8px; font-size:13px; }
   @media print {
     header, .noprint, #toast { display:none !important; }
     body { background:#fff; }
@@ -426,10 +427,23 @@
         <button class="btn" id="btnPrint"><span data-ic="printer" class="ic-s"></span>Cetak</button>
         <button class="btn2" id="btnKembali">Kembali</button>
       </div>
-      <p class="muted" style="margin:8px 0 0">Hanya jamaah wajib absen (Flag Absen = Y). Kartu bisa dicetak & digunting, atau di-screenshot lalu dikirim ke jamaah.</p>
+      <input type="text" id="kartuQ" placeholder="Cari nama atau ID jamaah" autocomplete="off" style="margin-top:8px">
+      <p class="muted" style="margin:8px 0 0"><span id="kartuN"></span>Kartu bisa dicetak &amp; digunting, atau tap <b>Bagikan</b> untuk mengirim kartu sebagai gambar (mis. ke WhatsApp jamaah). Tombol Cetak mencetak kartu sesuai hasil pencarian.</p>
     </div>
     <div class="kartu-grid" id="kartuGrid"></div>
   </section>
+
+  <!-- PRATINJAU GAMBAR KARTU (jika perangkat tidak mendukung "Bagikan") -->
+  <div id="kartuPrev" class="ov hide noprint" role="dialog" aria-modal="true">
+    <div class="ov-box" style="max-width:360px">
+      <img id="kartuPrevImg" alt="Kartu QR" style="width:100%;border-radius:12px;border:1px solid var(--bd)">
+      <p class="muted" style="margin:8px 0 10px">Di HP: tekan lama gambar → Simpan / Bagikan. Di laptop: tap Unduh.</p>
+      <div class="row2">
+        <a class="btn" id="kartuPrevUnduh" download><span data-ic="download" class="ic-s"></span>Unduh</a>
+        <button class="btn2" id="kartuPrevTutup">Tutup</button>
+      </div>
+    </div>
+  </div>
 </main>
 
 <div id="toast"></div>
@@ -485,7 +499,9 @@ var IKON = {
   pen: 'M4 20h4L18.5 9.5a2.83 2.83 0 0 0-4-4L4 16v4M13.5 6.5l4 4',
   chat: 'M3 21l1.65-3.8a9 9 0 1 1 3.4 2.9L3 21M9 10a.5.5 0 0 0 1 0V9a.5.5 0 0 0-1 0v1a5 5 0 0 0 5 5h1a.5.5 0 0 0 0-1h-1a.5.5 0 0 0 0 1',
   copy: 'M8 10a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2zM16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2',
-  chart: 'M3 3v18h18M7 15l4-4 3 3 5-6'
+  chart: 'M3 3v18h18M7 15l4-4 3 3 5-6',
+  share: 'M6 12a2 2 0 1 0 4 0 2 2 0 1 0-4 0M14 6a2 2 0 1 0 4 0 2 2 0 1 0-4 0M14 18a2 2 0 1 0 4 0 2 2 0 1 0-4 0M9.7 10.7l4.6-2.4M9.7 13.3l4.6 2.4',
+  download: 'M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M7 11l5 5 5-5M12 4v12'
 };
 function ikon(n, cls) {
   return '<svg class="ic' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + IKON[n] + '"/></svg>';
@@ -1259,12 +1275,75 @@ function bukaKartu() {
 }
 function qrImg(text) { var q = qrcode(0, 'M'); q.addData(text); q.make(); return q.createImgTag(5, 8); }
 function renderKartu() {
-  var f = $('kartuJK').value;
-  $('kartuGrid').innerHTML = S.kartu.filter(function (j) { return !f || j.jk === f; }).map(function (j) {
+  var f = $('kartuJK').value, q = ($('kartuQ').value || '').trim().toLowerCase();
+  var daftar = S.kartu.filter(function (j) {
+    if (f && j.jk !== f) return false;
+    if (!q) return true;
+    return (j.nama || '').toLowerCase().indexOf(q) >= 0 || (j.lengkap || '').toLowerCase().indexOf(q) >= 0 || (j.id || '').toLowerCase().indexOf(q) >= 0;
+  });
+  $('kartuN').textContent = (q || f ? daftar.length + ' dari ' + S.kartu.length + ' kartu. ' : S.kartu.length + ' kartu. ');
+  $('kartuGrid').innerHTML = daftar.map(function (j) {
     return '<div class="kartu"><div class="kg">' + esc(S.kelompokKartu) + '</div>' + qrImg(j.id) +
       '<div class="kn">' + esc(j.nama) + '</div>' + (j.lengkap && j.lengkap !== j.nama ? '<div class="kl">' + esc(j.lengkap) + '</div>' : '') +
-      '<div class="ki">' + esc(j.id) + '</div></div>';
-  }).join('') || '<p class="muted">Belum ada jamaah ber-ID.</p>';
+      '<div class="ki">' + esc(j.id) + '</div>' +
+      '<button class="btn2 kbag noprint" data-id="' + esc(j.id) + '">' + ikon('share', 'ic-s') + 'Bagikan</button></div>';
+  }).join('') || (S.kartu.length ? '<p class="muted">Tidak ada jamaah yang cocok dengan "' + esc(q) + '".</p>' : '<p class="muted">Belum ada jamaah ber-ID.</p>');
+}
+
+/* Kartu sebagai gambar PNG (untuk dibagikan ke jamaah) */
+function gambarKartu(j) {
+  var q = qrcode(0, 'M'); q.addData(j.id); q.make();
+  var n = q.getModuleCount(), W = 640, cell = Math.floor(440 / (n + 8)), qs = cell * (n + 8);
+  var lengkap = j.lengkap && j.lengkap !== j.nama ? j.lengkap : '';
+  var H = 120 + qs + 200 + (lengkap ? 36 : 0);
+  var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  var c = cv.getContext('2d'), font = '-apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+  c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);
+  var g = c.createLinearGradient(0, 0, W, 0); g.addColorStop(0, '#ED0226'); g.addColorStop(1, '#B90024');
+  c.fillStyle = g; c.fillRect(0, 0, W, 96);
+  c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.font = '700 30px ' + font; c.fillText('Kartu Presensi · ' + (S.kelompokKartu || ''), W / 2, 48);
+  var x0 = Math.round((W - qs) / 2), y0 = 120;   // koordinat bulat → tanpa garis tipis antar modul QR
+  c.fillStyle = '#111827';
+  for (var r = 0; r < n; r++) for (var k = 0; k < n; k++) if (q.isDark(r, k)) c.fillRect(x0 + (k + 4) * cell, y0 + (r + 4) * cell, cell, cell);
+  var y = y0 + qs + 44;
+  var ukuran = 40; c.font = '800 ' + ukuran + 'px ' + font;
+  while (ukuran > 22 && c.measureText(j.nama).width > W - 60) { ukuran -= 2; c.font = '800 ' + ukuran + 'px ' + font; }
+  c.fillStyle = '#111827'; c.fillText(j.nama, W / 2, y);
+  if (lengkap) { y += 42; c.font = '500 24px ' + font; c.fillStyle = '#4B5563'; c.fillText(lengkap, W / 2, y, W - 60); }
+  y += 44; c.font = '500 22px ui-monospace, Menlo, Consolas, monospace'; c.fillStyle = '#6B7280'; c.fillText(j.id, W / 2, y, W - 40);
+  y += 52; c.font = '500 19px ' + font; c.fillStyle = '#9CA3AF'; c.fillText('Tunjukkan kartu ini ke kamera kiosk / petugas saat presensi', W / 2, y, W - 40);
+  return cv;
+}
+function dataUrlKeBlob(url) {
+  var p = url.split(','), bin = atob(p[1]), arr = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: 'image/png' });
+}
+function bagikanKartu(id) {
+  var j = cariId(S.kartu, id); if (!j) return;
+  var url = gambarKartu(j).toDataURL('image/png');
+  var namaFile = 'Kartu-QR-' + String(j.nama).replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.png';
+  var file = null;
+  try { file = new File([dataUrlKeBlob(url)], namaFile, { type: 'image/png' }); } catch (e) { file = null; }
+  var teks = 'Kartu QR presensi ' + (S.kelompokKartu || '') + ' a.n. ' + j.nama + '. Simpan gambar ini dan tunjukkan ke kamera kiosk saat presensi.';
+  // Langsung (tanpa await sebelumnya) agar izin "gesture" pengguna tetap berlaku untuk navigator.share
+  if (file && navigator.canShare && navigator.share) {
+    var bisa = false; try { bisa = navigator.canShare({ files: [file] }); } catch (e) { bisa = false; }
+    if (bisa) {
+      navigator.share({ files: [file], title: 'Kartu QR ' + j.nama, text: teks }).catch(function (e) {
+        if (e && e.name === 'AbortError') return;   // pengguna membatalkan
+        tampilGambarKartu(url, namaFile);
+      });
+      return;
+    }
+  }
+  tampilGambarKartu(url, namaFile);
+}
+function tampilGambarKartu(url, namaFile) {
+  $('kartuPrevImg').src = url;
+  $('kartuPrevUnduh').href = url; $('kartuPrevUnduh').setAttribute('download', namaFile);
+  show($('kartuPrev'), true);
 }
 
 /* ---------- dashboard admin (angka sama dengan tab Dashboard_Absensi) ---------- */
@@ -1516,6 +1595,10 @@ $('btnWA').onclick = $('btnWA2').onclick = function () { if (S.rekap) setTimeout
 $('btnSalin').onclick = function () { if (S.rekap) salinTeks(S.rekap.teks); };
 $('btnKartu').onclick = bukaKartu;
 $('kartuJK').onchange = renderKartu;
+$('kartuQ').addEventListener('input', renderKartu);
+$('kartuGrid').onclick = function (e) { var b = e.target.closest('.kbag'); if (b) bagikanKartu(b.getAttribute('data-id')); };
+$('kartuPrevTutup').onclick = function () { show($('kartuPrev'), false); };
+$('kartuPrev').onclick = function (e) { if (e.target === this) show($('kartuPrev'), false); };
 $('btnPrint').onclick = function () { window.print(); };
 function tutupKartu() { show($('vKartu'), false); show($('vAbsen'), true); }
 $('btnKembali').onclick = function () { if (history.state && history.state.v === 'kartu') history.back(); else tutupKartu(); };
