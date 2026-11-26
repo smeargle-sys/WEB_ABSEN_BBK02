@@ -108,7 +108,7 @@
   .it.h .bh, .it.t .bh { background:var(--ok); color:#fff; }
   .it.i .bi { background:var(--izin); color:#fff; }
   .it button:disabled { opacity:.5; }
-  a.btn { text-decoration:none; border-radius:10px; padding:10px 14px; font-weight:600; font-size:15px; }
+  a.btn, a.btn2 { text-decoration:none; border-radius:10px; padding:10px 14px; font-weight:600; font-size:15px; }
   .btn.wa { background:#1DA851; } .btn.wa:active { background:#178A43; }
   .rekap { margin-top:12px; padding-top:12px; border-top:1px solid var(--bd); }
   .rekap pre { white-space:pre-wrap; font-family:inherit; font-size:12px; line-height:1.45; background:#F9FAFB; border:1px solid var(--bd);
@@ -303,6 +303,25 @@
       </div>
     </div>
 
+    <div class="card hide" id="cardAdmin">
+      <b>Menu Admin</b>
+      <button class="btn btn-w" id="btnDash" style="margin-top:10px"><span data-ic="chart" class="ic-s"></span>Dashboard Kehadiran</button>
+      <div class="row2" style="margin-top:8px">
+        <button class="btn2" id="btnTutup"><span data-ic="lock" class="ic-s"></span><span id="btnTutupLbl">Tutup Sesi Ini</span></button>
+        <button class="btn2" id="btnKartu"><span data-ic="printer" class="ic-s"></span>Cetak Kartu QR</button>
+      </div>
+      <p class="muted" style="margin:8px 0 0">Sesi juga ditutup otomatis sesuai jadwal; yang tidak tercatat menjadi Alpa.</p>
+      <div class="rekap hide" id="rekapBox">
+        <b>Rekap untuk grup pengurus</b>
+        <div class="muted" id="rekapInfo" style="margin-top:2px"></div>
+        <div class="row2" style="margin-top:8px">
+          <a class="btn wa" id="btnWA" target="_blank" rel="noopener"><span data-ic="chat" class="ic-s"></span>Kirim ke WhatsApp</a>
+          <button class="btn2" id="btnSalin"><span data-ic="copy" class="ic-s"></span>Salin teks</button>
+        </div>
+        <details><summary>Lihat isi pesan</summary><pre id="rekapTeks"></pre></details>
+      </div>
+    </div>
+
     <div id="bannerVersi" class="banner warn hide"><span data-ic="alert"></span><div id="bannerVersiT"></div></div>
     <div id="bannerBelumSesi" class="banner info hide"><span data-ic="clock"></span><div id="bannerBelumSesiT"></div></div>
     <div id="bannerRekap" class="banner okb hide"><span data-ic="chat"></span><div style="flex:1" id="bannerRekapT"></div>
@@ -369,24 +388,6 @@
       <div id="timeline" class="hide"></div>
     </div>
 
-    <div class="card hide" id="cardAdmin">
-      <b>Menu Admin</b>
-      <button class="btn btn-w" id="btnDash" style="margin-top:10px"><span data-ic="chart" class="ic-s"></span>Dashboard Kehadiran</button>
-      <div class="row2" style="margin-top:8px">
-        <button class="btn2" id="btnTutup"><span data-ic="lock" class="ic-s"></span><span id="btnTutupLbl">Tutup Sesi Ini</span></button>
-        <button class="btn2" id="btnKartu"><span data-ic="printer" class="ic-s"></span>Cetak Kartu QR</button>
-      </div>
-      <p class="muted" style="margin:8px 0 0">Sesi juga ditutup otomatis sesuai jadwal; yang tidak tercatat menjadi Alpa.</p>
-      <div class="rekap hide" id="rekapBox">
-        <b>Rekap untuk grup pengurus</b>
-        <div class="muted" id="rekapInfo" style="margin-top:2px"></div>
-        <div class="row2" style="margin-top:8px">
-          <a class="btn wa" id="btnWA" target="_blank" rel="noopener"><span data-ic="chat" class="ic-s"></span>Kirim ke WhatsApp</a>
-          <button class="btn2" id="btnSalin"><span data-ic="copy" class="ic-s"></span>Salin teks</button>
-        </div>
-        <details><summary>Lihat isi pesan</summary><pre id="rekapTeks"></pre></details>
-      </div>
-    </div>
     <p class="muted center" id="versiInfo"></p>
   </section>
 
@@ -437,9 +438,10 @@
   <div id="kartuPrev" class="ov hide noprint" role="dialog" aria-modal="true">
     <div class="ov-box" style="max-width:360px">
       <img id="kartuPrevImg" alt="Kartu QR" style="width:100%;border-radius:12px;border:1px solid var(--bd)">
-      <p class="muted" style="margin:8px 0 10px">Di HP: tekan lama gambar → Simpan / Bagikan. Di laptop: tap Unduh.</p>
+      <p class="muted" id="kartuPrevInfo" style="margin:8px 0 10px"></p>
+      <button class="btn btn-w hide" id="kartuPrevBagikan" style="margin-bottom:8px"><span data-ic="share" class="ic-s"></span>Bagikan</button>
       <div class="row2">
-        <a class="btn" id="kartuPrevUnduh" download><span data-ic="download" class="ic-s"></span>Unduh</a>
+        <a class="btn2" id="kartuPrevUnduh" download><span data-ic="download" class="ic-s"></span>Unduh</a>
         <button class="btn2" id="kartuPrevTutup">Tutup</button>
       </div>
     </div>
@@ -1293,26 +1295,27 @@ function renderKartu() {
 /* Kartu sebagai gambar PNG (untuk dibagikan ke jamaah) */
 function gambarKartu(j) {
   var q = qrcode(0, 'M'); q.addData(j.id); q.make();
-  var n = q.getModuleCount(), W = 640, cell = Math.floor(440 / (n + 8)), qs = cell * (n + 8);
+  // QR dibuat besar (modul ±22 px) agar mudah di-scan dari layar HP; zona tenang 2 modul + margin putih kanvas
+  var n = q.getModuleCount(), W = 720, zona = 2, cell = Math.floor(640 / (n + zona * 2)), qs = cell * (n + zona * 2);
   var lengkap = j.lengkap && j.lengkap !== j.nama ? j.lengkap : '';
-  var H = 120 + qs + 200 + (lengkap ? 36 : 0);
+  var H = 120 + qs + 210 + (lengkap ? 40 : 0);
   var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   var c = cv.getContext('2d'), font = '-apple-system, "Segoe UI", Roboto, Arial, sans-serif';
   c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);
   var g = c.createLinearGradient(0, 0, W, 0); g.addColorStop(0, '#ED0226'); g.addColorStop(1, '#B90024');
   c.fillStyle = g; c.fillRect(0, 0, W, 96);
   c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle';
-  c.font = '700 30px ' + font; c.fillText('Kartu Presensi · ' + (S.kelompokKartu || ''), W / 2, 48);
+  c.font = '700 32px ' + font; c.fillText('Kartu Presensi · ' + (S.kelompokKartu || ''), W / 2, 48);
   var x0 = Math.round((W - qs) / 2), y0 = 120;   // koordinat bulat → tanpa garis tipis antar modul QR
   c.fillStyle = '#111827';
-  for (var r = 0; r < n; r++) for (var k = 0; k < n; k++) if (q.isDark(r, k)) c.fillRect(x0 + (k + 4) * cell, y0 + (r + 4) * cell, cell, cell);
-  var y = y0 + qs + 44;
-  var ukuran = 40; c.font = '800 ' + ukuran + 'px ' + font;
+  for (var r = 0; r < n; r++) for (var k = 0; k < n; k++) if (q.isDark(r, k)) c.fillRect(x0 + (k + zona) * cell, y0 + (r + zona) * cell, cell, cell);
+  var y = y0 + qs + 48;
+  var ukuran = 44; c.font = '800 ' + ukuran + 'px ' + font;
   while (ukuran > 22 && c.measureText(j.nama).width > W - 60) { ukuran -= 2; c.font = '800 ' + ukuran + 'px ' + font; }
   c.fillStyle = '#111827'; c.fillText(j.nama, W / 2, y);
-  if (lengkap) { y += 42; c.font = '500 24px ' + font; c.fillStyle = '#4B5563'; c.fillText(lengkap, W / 2, y, W - 60); }
-  y += 44; c.font = '500 22px ui-monospace, Menlo, Consolas, monospace'; c.fillStyle = '#6B7280'; c.fillText(j.id, W / 2, y, W - 40);
-  y += 52; c.font = '500 19px ' + font; c.fillStyle = '#9CA3AF'; c.fillText('Tunjukkan kartu ini ke kamera kiosk / petugas saat presensi', W / 2, y, W - 40);
+  if (lengkap) { y += 46; c.font = '500 26px ' + font; c.fillStyle = '#4B5563'; c.fillText(lengkap, W / 2, y, W - 60); }
+  y += 46; c.font = '500 24px ui-monospace, Menlo, Consolas, monospace'; c.fillStyle = '#6B7280'; c.fillText(j.id, W / 2, y, W - 40);
+  y += 54; c.font = '500 20px ' + font; c.fillStyle = '#9CA3AF'; c.fillText('Tunjukkan kartu ini ke kamera kiosk / petugas saat presensi', W / 2, y, W - 40);
   return cv;
 }
 function dataUrlKeBlob(url) {
@@ -1327,23 +1330,41 @@ function bagikanKartu(id) {
   var file = null;
   try { file = new File([dataUrlKeBlob(url)], namaFile, { type: 'image/png' }); } catch (e) { file = null; }
   var teks = 'Kartu QR presensi ' + (S.kelompokKartu || '') + ' a.n. ' + j.nama + '. Simpan gambar ini dan tunjukkan ke kamera kiosk saat presensi.';
+  S.kartuShare = { file: file, url: url, namaFile: namaFile, judul: 'Kartu QR ' + j.nama, teks: teks };
   // Langsung (tanpa await sebelumnya) agar izin "gesture" pengguna tetap berlaku untuk navigator.share
-  if (file && navigator.canShare && navigator.share) {
-    var bisa = false; try { bisa = navigator.canShare({ files: [file] }); } catch (e) { bisa = false; }
-    if (bisa) {
-      navigator.share({ files: [file], title: 'Kartu QR ' + j.nama, text: teks }).catch(function (e) {
-        if (e && e.name === 'AbortError') return;   // pengguna membatalkan
-        tampilGambarKartu(url, namaFile);
-      });
-      return;
-    }
+  if (bisaBagikanFile(file)) {
+    navigator.share({ files: [file], title: S.kartuShare.judul, text: teks }).catch(function (e) {
+      if (e && e.name === 'AbortError') return;   // pengguna membatalkan
+      tampilGambarKartu(e && e.name);
+    });
+    return;
   }
-  tampilGambarKartu(url, namaFile);
+  tampilGambarKartu();
 }
-function tampilGambarKartu(url, namaFile) {
-  $('kartuPrevImg').src = url;
-  $('kartuPrevUnduh').href = url; $('kartuPrevUnduh').setAttribute('download', namaFile);
+function bisaBagikanFile(file) {
+  if (!file || !navigator.share || !navigator.canShare) return false;
+  try { return navigator.canShare({ files: [file] }); } catch (e) { return false; }
+}
+function dalamIframe() { try { return window.self !== window.top; } catch (e) { return true; } }
+function tampilGambarKartu(alasan) {
+  var k = S.kartuShare;
+  $('kartuPrevImg').src = k.url;
+  $('kartuPrevUnduh').href = k.url; $('kartuPrevUnduh').setAttribute('download', k.namaFile);
+  var bisa = bisaBagikanFile(k.file);
+  show($('kartuPrevBagikan'), bisa);
+  $('kartuPrevInfo').innerHTML = bisa
+    ? 'Tap <b>Bagikan</b> untuk membuka menu bagikan (WhatsApp, dll.), atau <b>Unduh</b> untuk menyimpan gambar.'
+    : 'Perangkat/tampilan ini tidak mengizinkan bagikan langsung' +
+      (dalamIframe() ? ' (aplikasi dibuka dari link <b>script.google.com</b>; buka lewat link <b>GitHub Pages</b> agar tombol Bagikan langsung membuka menu bagikan Android)' : '') +
+      '. Tap <b>Unduh</b>, atau tekan lama gambar → Simpan/Bagikan.';
   show($('kartuPrev'), true);
+}
+function bagikanLagi() {
+  var k = S.kartuShare; if (!k) return;
+  navigator.share({ files: [k.file], title: k.judul, text: k.teks }).catch(function (e) {
+    if (e && e.name === 'AbortError') return;
+    toast('Menu bagikan tidak bisa dibuka (' + (e && e.name || 'error') + '). Gunakan Unduh.', 'warn', 4000);
+  });
 }
 
 /* ---------- dashboard admin (angka sama dengan tab Dashboard_Absensi) ---------- */
@@ -1598,6 +1619,7 @@ $('kartuJK').onchange = renderKartu;
 $('kartuQ').addEventListener('input', renderKartu);
 $('kartuGrid').onclick = function (e) { var b = e.target.closest('.kbag'); if (b) bagikanKartu(b.getAttribute('data-id')); };
 $('kartuPrevTutup').onclick = function () { show($('kartuPrev'), false); };
+$('kartuPrevBagikan').onclick = bagikanLagi;
 $('kartuPrev').onclick = function (e) { if (e.target === this) show($('kartuPrev'), false); };
 $('btnPrint').onclick = function () { window.print(); };
 function tutupKartu() { show($('vKartu'), false); show($('vAbsen'), true); }
