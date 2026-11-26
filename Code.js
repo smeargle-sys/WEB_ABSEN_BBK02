@@ -775,7 +775,7 @@ function rekapPesan_(s) {
     if (jk === 'L') n.wL++; else n.wP++;
     if (st === ST.H) {
       n.H++; if (jk === 'L') n.HL++; else n.HP++;
-      if (/^ya$/i.test(String(r[AX.TELAT] || '').trim())) { n.T++; L.T.push({ nama: nama, jk: jk, m: Number(r[AX.MENIT]) || 0 }); }
+      if (/^ya$/i.test(String(r[AX.TELAT] || '').trim())) { n.T++; L.T.push({ nama: nama, jk: jk, m: Number(r[AX.MENIT]) || 0, jam: jamDari_(r[AX.WAKTU]) }); }
     } else if (st === ST.I) { n.I++; L.I[jk].push(nama); }
     else if (st === ST.A) { n.A++; L.A[jk].push(nama); }
   });
@@ -808,7 +808,8 @@ function rekapPesan_(s) {
     '*Izin (' + n.I + ')*', perJK(L.I),
     '',
     '*Terlambat (' + n.T + ')* — batas ' + set.batasTepat,
-    L.T.length ? L.T.map((x, i) => (i + 1) + '. ' + x.nama + ' (' + (x.jk === 'L' ? 'Pria' : 'Wanita') + ', +' + x.m + ' mnt)').join('\n') : '-',
+    // tampilkan jam kedatangan (lebih mudah dipahami daripada "+x mnt"); urut dari yang datang paling akhir
+    L.T.length ? L.T.map((x, i) => (i + 1) + '. ' + x.nama + ' (' + (x.jk === 'L' ? 'Pria' : 'Wanita') + ', datang ' + (x.jam || '-') + ')').join('\n') : '-',
     '',
     '_Data final setelah sesi ditutup. Dashboard lengkap ada di Google Sheet ABSENSI ' + set.namaKelompok + '._',
   ];
@@ -1082,7 +1083,7 @@ function hitungRekap_(sesiList, absen, o) {
 
   const J = {}, S = {}, B = {};
   sesiP.forEach(s => {
-    S[s.id] = { tanggal: s.tanggal, hari: s.hari || hariDari_(s.tanggal), ket: s.ket || '', hL: 0, hP: 0, telat: 0, izin: 0, alpa: 0, num: 0, den: 0, numL: 0, denL: 0, numP: 0, denP: 0 };
+    S[s.id] = { id: s.id, tanggal: s.tanggal, hari: s.hari || hariDari_(s.tanggal), ket: s.ket || '', hL: 0, hP: 0, telat: 0, izin: 0, alpa: 0, num: 0, den: 0, numL: 0, denL: 0, numP: 0, denP: 0 };
     const b = s.tanggal.slice(0, 7);
     if (!B[b]) B[b] = { bulan: b, sesi: 0, ket: {}, numL: 0, denL: 0, numP: 0, denP: 0, hadir: 0, telat: 0 };
     B[b].sesi++;
@@ -1101,7 +1102,7 @@ function hitungRekap_(sesiList, absen, o) {
     if (telat) j.telat++;
     const v = nilai(st), d = wajib(st);
     j.num += v; j.den += d;
-    j.seq.push({ t: ss.tanggal, st: st });
+    j.seq.push({ t: ss.tanggal, st: st, sid: r.sesi, telat: telat });
     if (st === ST.H) { if (r.jk === 'L') ss.hL++; else ss.hP++; if (telat) ss.telat++; }
     else if (st === ST.I) ss.izin++;
     else if (st !== ST.X) ss.alpa++;
@@ -1131,7 +1132,7 @@ function hitungRekap_(sesiList, absen, o) {
     });
     return { id: j.id, nama: j.nama, jk: j.jk, hadir: j.hadir, telat: j.telat, pctTepat: pct(j.hadir - j.telat, j.hadir),
       izin: j.izin, alpa: j.alpa, kecuali: j.kecuali,
-      dihitung: j.den, pct: p, beruntun: beruntun, kategori: kategori(p), num: j.num };
+      dihitung: j.den, pct: p, beruntun: beruntun, kategori: kategori(p), num: j.num, riw: j.seq };
   }).sort((a, b) => ((a.pct === null) - (b.pct === null)) || ((a.pct || 0) - (b.pct || 0)) || a.nama.localeCompare(b.nama));
 
   const sum = (arr, f) => arr.reduce((t, x) => t + f(x), 0);
@@ -1194,6 +1195,18 @@ function dashboardData_(awal, akhir, jk) {
     awal: awal, akhir: akhir, jk: jk,
     ambangKurang: set.ambangKurang, ambangPerhatian: set.ambangPerhatian, izinHadir: set.izinHadir,
   });
+  // Riwayat per jamaah: 1 huruf per sesi (urutan = R.sesi, terlama → terbaru)
+  // H hadir · T hadir terlambat · I izin · A alpa · X dikecualikan · - tidak ada data (mis. belum bergabung)
+  const idxSesi = {};
+  R.sesi.forEach((x, i) => { idxSesi[x.id] = i; });
+  const kodeRiw = j => {
+    const a = R.sesi.map(() => '-');
+    (j.riw || []).forEach(x => {
+      const i = idxSesi[x.sid]; if (i === undefined) return;
+      a[i] = x.st === ST.H ? (x.telat ? 'T' : 'H') : x.st === ST.I ? 'I' : x.st === ST.X ? 'X' : 'A';
+    });
+    return a.join('');
+  };
   return {
     awal: awal, akhir: akhir, jk: jk,
     bulanTersedia: Object.keys(bulanSet).sort().map(b => ({ v: b, label: labelBulan_(b) })),
@@ -1201,10 +1214,10 @@ function dashboardData_(awal, akhir, jk) {
       batasTepat: set.batasTepat, izinHadir: set.izinHadir, alpaBeruntun: set.alpaBeruntun },
     ringkas: R.ringkas,
     bulan: R.bulan.map(b => ({ bulan: b.bulan, label: labelBulan_(b.bulan), sesiTeks: b.sesiTeks, pct: b.pct, pctL: b.pctL, pctP: b.pctP, pctTelat: b.pctTelat })),
-    sesi: R.sesi.map(x => ({ tanggal: x.tanggal, hari: x.hari, ket: x.ket, hL: x.hL, hP: x.hP, telat: x.telat, izin: x.izin, alpa: x.alpa,
+    sesi: R.sesi.map(x => ({ id: x.id, tanggal: x.tanggal, hari: x.hari, ket: x.ket, hL: x.hL, hP: x.hP, telat: x.telat, izin: x.izin, alpa: x.alpa,
       pct: x.pct, pctL: x.pctL, pctP: x.pctP })),
     jamaah: R.jamaah.map(j => ({ id: j.id, nama: j.nama, jk: j.jk, hadir: j.hadir, telat: j.telat, pctTepat: j.pctTepat, izin: j.izin,
-      alpa: j.alpa, kecuali: j.kecuali, dihitung: j.dihitung, pct: j.pct, beruntun: j.beruntun, kategori: j.kategori })),
+      alpa: j.alpa, kecuali: j.kecuali, dihitung: j.dihitung, pct: j.pct, beruntun: j.beruntun, kategori: j.kategori, riwayat: kodeRiw(j) })),
     dibuat: fmt_(new Date(), 'dd/MM/yyyy HH:mm'),
   };
 }

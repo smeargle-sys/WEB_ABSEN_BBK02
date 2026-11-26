@@ -231,6 +231,39 @@
   .tgl { flex:none; width:44px; text-align:center; border-radius:8px; background:var(--navyl); color:var(--navy); padding:4px 0; line-height:1.1; }
   .tgl b { display:block; font-size:16px; } .tgl span { font-size:10px; font-weight:600; text-transform:uppercase; }
 
+  /* riwayat per jamaah (dashboard) */
+  #dashJam .it { cursor:pointer; }
+  #dashJam .it:active { background:var(--navyl); }
+  /* bottom sheet: muncul dari bawah, judul menempel di atas saat isi digulir */
+  #rwPanel { align-items:flex-end; padding:0; background:rgba(17,24,39,.45); }
+  .rw-box { width:100%; max-width:560px; max-height:88vh; overflow-y:auto; text-align:left; padding:0;
+            border-radius:18px 18px 0 0; border:0; box-shadow:0 -8px 30px rgba(0,0,0,.18); animation:naik .2s ease-out;
+            padding-bottom:env(safe-area-inset-bottom); overscroll-behavior:contain; }
+  @keyframes naik { from { transform:translateY(40px); opacity:.6; } to { transform:none; opacity:1; } }
+  .rw-top { position:sticky; top:0; z-index:2; background:#fff; padding:8px 16px 10px; border-bottom:1px solid var(--bd); }
+  .rw-grip { width:40px; height:4px; border-radius:99px; background:#D1D5DB; margin:0 auto 8px; }
+  .rw-body { padding:12px 16px 16px; }
+  .rw-hd { display:flex; align-items:center; gap:10px; }
+  .rw-hd .info { flex:1; min-width:0; }
+  .rw-hd .nm { font-size:17px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rw-hd .sub { font-size:12px; color:var(--mut); margin-top:2px; }
+  .rw-x { flex:none; width:36px; height:36px; padding:0; border-radius:50%; background:var(--grbg); color:#374151;
+          display:inline-flex; align-items:center; justify-content:center; }
+  .stats .a { background:var(--errbg); } .stats .a b { color:var(--err); }
+  .rw-cap { font-size:11px; color:var(--mut); margin:12px 0 4px; }
+  .rw-strip { display:flex; flex-wrap:wrap; gap:3px; margin:0 0 4px; }
+  .rw-strip i { width:14px; height:14px; border-radius:3px; display:block; }
+  .rw-leg { display:flex; flex-wrap:wrap; gap:10px; font-size:11px; color:var(--mut); margin-bottom:8px; }
+  .rw-leg i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:-1px; }
+  .c-H { background:var(--ok); } .c-T { background:var(--kunyit); } .c-I { background:var(--izin); }
+  .c-A { background:var(--err); } .c-X { background:#D1D5DB; } .c-- { background:#F3F4F6; border:1px dashed #D1D5DB; }
+  .rw-list .it { padding:8px 4px; }
+  .rw-list .it.streak { box-shadow:inset 3px 0 0 var(--err); background:linear-gradient(90deg, var(--errbg), transparent); }
+  .st-b { flex:none; font-size:12px; font-weight:700; padding:4px 9px; border-radius:8px; }
+  .st-b.H { background:var(--okbg); color:var(--ok); } .st-b.T { background:var(--latebg); color:var(--late); }
+  .st-b.I { background:var(--izinbg); color:var(--izintx); } .st-b.A { background:var(--errbg); color:var(--err); }
+  .st-b.X, .st-b.N { background:var(--grbg); color:var(--mut); }
+
   /* kartu QR */
   .kartu-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px,1fr)); gap:10px; }
   .kartu { border:1.5px dashed #9CA3AF; border-radius:10px; padding:10px; text-align:center; background:#fff; page-break-inside:avoid; break-inside:avoid; }
@@ -419,6 +452,11 @@
       <p class="muted" id="dashCatatan" style="margin:8px 0 0"></p>
     </div>
   </section>
+
+  <!-- RIWAYAT PER JAMAAH (dari Dashboard) -->
+  <div id="rwPanel" class="ov hide" role="dialog" aria-modal="true">
+    <div class="ov-box rw-box" id="rwBox"></div>
+  </div>
 
   <!-- KARTU QR -->
   <section id="vKartu" class="hide">
@@ -1480,15 +1518,63 @@ function renderDashJamaah() {
       (j.telat ? ' · telat ' + j.telat : '') + (j.izin ? ' · izin ' + j.izin : '') + ' · alpa ' + j.alpa;
     // Label di baris sendiri agar nama tidak terpotong; N = rangkaian alpa terpanjang, batas tampil dari Pengaturan
     var tag = j.beruntun >= (a.alpaBeruntun || 3) ? '<div style="margin-top:3px"><span class="tag telat" style="margin-left:0">pernah alpa ' + j.beruntun + '× berturut-turut</span></div>' : '';
-    return '<div class="it"><div class="info"><div class="nm">' + esc(j.nama) + '</div><div class="sub">' + esc(sub) + '</div>' + tag + '</div>' +
+    return '<div class="it" data-id="' + esc(j.id) + '"><div class="info"><div class="nm">' + esc(j.nama) + '</div><div class="sub">' + esc(sub) + '</div>' + tag + '</div>' +
       '<div class="kp ' + kelasKategori(j.kategori) + '"><span class="num">' + pctTxt(j.pct) + '</span><small>' + esc(j.kategori) + '</small></div></div>';
   }).join('') + (daftar.length > maks ? '<div class="kosong">Menampilkan ' + maks + ' teratas — gunakan pencarian untuk yang lain.</div>' : '')
     : '<div class="kosong">Tidak ada jamaah yang cocok.</div>';
   $('dashCatatan').textContent = D.filter === 'telat'
     ? 'Sering terlambat = ≥ ' + a.seringTelat + '% kehadirannya setelah batas ' + a.batasTepat + '.'
-    : 'Urut dari kehadiran terendah. Label "pernah alpa N× berturut-turut" muncul bila rangkaian alpa berturut-turut terpanjang dalam periode mencapai ' +
+    : 'Tap nama untuk melihat riwayat per sesi. Urut dari kehadiran terendah. Label "pernah alpa N× berturut-turut" muncul bila rangkaian alpa berturut-turut terpanjang dalam periode mencapai ' +
       (a.alpaBeruntun || 3) + ' sesi atau lebih (hadir/izin memutus rangkaian). Batas ini bisa diubah di tab Pengaturan → Batas Alpa Beruntun.';
 }
+
+/* Riwayat per jamaah: status di setiap sesi periode (dari kode riwayat H/T/I/A/X/-) */
+var NAMA_ST = { H: 'Hadir', T: 'Terlambat', I: 'Izin', A: 'Alpa', X: 'Dikecualikan', '-': 'Tidak ada data' };
+function bukaRiwayat(id) {
+  var d = D.data; if (!d) return;
+  var j = cariId(d.jamaah, id); if (!j) return;
+  var kode = String(j.riwayat || '');
+  // rangkaian alpa terpanjang (aturan sama dengan server: hadir/izin memutus, dikecualikan dilewati)
+  var streak = {}, cur = [], best = [];
+  for (var i = 0; i < kode.length; i++) {
+    var c = kode[i];
+    if (c === 'X' || c === '-') continue;
+    if (c === 'A') { cur.push(i); if (cur.length > best.length) best = cur.slice(); } else cur = [];
+  }
+  if (best.length >= (d.aturan.alpaBeruntun || 3)) best.forEach(function (i) { streak[i] = 1; });
+  var strip = d.sesi.map(function (x, i) {
+    var c = kode[i] || '-';
+    return '<i class="c-' + c + '" title="' + esc(tglPendek(x.tanggal) + ' · ' + NAMA_ST[c]) + '"></i>';
+  }).join('');
+  var baris = d.sesi.map(function (x, i) { return { x: x, i: i, c: kode[i] || '-' }; }).reverse().map(function (r) {
+    var p = r.x.tanggal.split('-');
+    return '<div class="it' + (streak[r.i] ? ' streak' : '') + '"><div class="tgl"><b>' + (+p[2]) + '</b><span>' + BLN[+p[1] - 1] + '</span></div>' +
+      '<div class="info"><div class="nm" style="font-size:14px">' + esc(r.x.hari) + (r.x.ket ? ' · ' + esc(r.x.ket) : '') + '</div>' +
+      (streak[r.i] ? '<div class="sub" style="color:var(--err)">alpa berturut-turut</div>' : '') + '</div>' +
+      '<span class="st-b ' + (r.c === '-' ? 'N' : r.c) + '">' + NAMA_ST[r.c] + '</span></div>';
+  }).join('');
+  $('rwBox').innerHTML =
+    '<div class="rw-top"><div class="rw-grip"></div><div class="rw-hd"><div class="info"><div class="nm">' + esc(j.nama) + '</div>' +
+      '<div class="sub">' + esc(j.id) + ' · ' + (j.jk === 'L' ? 'Pria' : 'Wanita') + ' · ' + d.sesi.length + ' sesi</div></div>' +
+      '<div class="kp ' + kelasKategori(j.kategori) + '"><span class="num">' + pctTxt(j.pct) + '</span><small>' + esc(j.kategori) + '</small></div>' +
+      '<button class="rw-x" id="rwX" aria-label="Tutup">' + ikon('x') + '</button></div></div>' +
+    '<div class="rw-body">' +
+    '<div class="stats num">' +
+      '<div class="h"><b>' + (j.hadir - j.telat) + '</b><span>Hadir</span></div>' +
+      '<div class="t"><b>' + j.telat + '</b><span>Terlambat</span></div>' +
+      '<div class="i"><b>' + j.izin + '</b><span>Izin</span></div>' +
+      '<div class="a"><b>' + j.alpa + '</b><span>Alpa</span></div></div>' +
+    (j.beruntun >= (d.aturan.alpaBeruntun || 3) ? '<div class="banner warn" style="margin:10px 0 0">' + ikon('alert') + '<div>Pernah alpa <b>' + j.beruntun + '× berturut-turut</b> (ditandai merah di bawah).</div></div>' : '') +
+    '<div class="rw-cap">Pola kehadiran (terlama → terbaru)</div><div class="rw-strip">' + strip + '</div>' +
+    '<div class="rw-leg"><span><i class="c-H"></i>Hadir</span><span><i class="c-T"></i>Terlambat</span><span><i class="c-I"></i>Izin</span><span><i class="c-A"></i>Alpa</span><span><i class="c-X"></i>Dikecualikan</span></div>' +
+    '<div class="list dl rw-list">' + (baris || '<div class="kosong">Belum ada sesi yang ditutup pada periode ini.</div>') + '</div>' +
+    '<button class="btn2 btn-w" id="rwTutup" style="margin-top:12px">Tutup</button></div>';
+  show($('rwPanel'), true);
+  document.body.classList.add('noscroll');   // halaman belakang tidak ikut tergulir
+  $('rwBox').scrollTop = 0;
+  history.pushState({ v: 'riwayat' }, '', '#riwayat');
+}
+function tutupRiwayat() { show($('rwPanel'), false); document.body.classList.remove('noscroll'); }
 
 /* Grafik garis SVG: % per sesi (Total / Pria / Wanita) + garis ambang */
 function gambarGrafik() {
@@ -1565,6 +1651,10 @@ $('dashAkhir').onchange = function () { D.akhir = this.value; if (D.awal > D.akh
 $('dashJK').onclick = function (e) { var b = e.target.closest('button'); if (!b) return; D.jk = b.getAttribute('data-jk'); muatDash(); };
 $('dashChips').onclick = function (e) { var b = e.target.closest('button'); if (!b) return; D.filter = b.getAttribute('data-f'); renderDashJamaah(); };
 $('dashQ').addEventListener('input', function () { D.q = this.value; renderDashJamaah(); });
+$('dashJam').onclick = function (e) { var it = e.target.closest('.it[data-id]'); if (it) bukaRiwayat(it.getAttribute('data-id')); };
+$('rwPanel').onclick = function (e) {
+  if (e.target === this || e.target.closest('#rwTutup, #rwX')) { if (history.state && history.state.v === 'riwayat') history.back(); else tutupRiwayat(); }
+};
 $('dashChart').onclick = function (e) {
   var r = e.target.closest('.hit'); if (!r) return;
   D.tip = +r.getAttribute('data-i'); gambarGrafik();
@@ -1641,6 +1731,7 @@ function tutupKartu() { show($('vKartu'), false); show($('vAbsen'), true); }
 $('btnKembali').onclick = function () { if (history.state && history.state.v === 'kartu') history.back(); else tutupKartu(); };
 // Tombol Back browser/HP: tutup Kartu QR atau layar scan — bukan keluar dari aplikasi
 window.addEventListener('popstate', function () {
+  if (!$('rwPanel').classList.contains('hide')) { tutupRiwayat(); return; }   // Back: tutup panel riwayat, tetap di Dashboard
   if (!$('vKartu').classList.contains('hide')) tutupKartu();
   if (!$('vDash').classList.contains('hide')) tutupDash();
   if (qrLive || $('scanArea').classList.contains('full')) { scanLewatHistory = false; stopLive(); renderList(); }
