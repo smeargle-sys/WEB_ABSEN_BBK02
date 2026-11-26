@@ -105,6 +105,8 @@
   .it.h { background:linear-gradient(90deg, var(--okbg), transparent); }
   .it.t { background:linear-gradient(90deg, var(--latebg), transparent); }
   .it.i { background:linear-gradient(90deg, var(--izinbg), transparent); }
+  .it.a { background:linear-gradient(90deg, var(--errbg), transparent); }
+  .it.a .sub { color:var(--err); }
   .it.h .bh, .it.t .bh { background:var(--ok); color:#fff; }
   .it.i .bi { background:var(--izin); color:#fff; }
   .it button:disabled { opacity:.5; }
@@ -1026,7 +1028,7 @@ function renderList() {
   if (!items.length) { $('list').innerHTML = '<div class="kosong">Tidak ada data.</div>'; return; }
   $('list').innerHTML = items.map(function (j) {
     var s = S.absen[j.id] || '', mt = s === STATUS_H ? (S.telat[j.id] || 0) : 0;
-    var cls = s === STATUS_H ? (mt ? 't' : 'h') : (s === STATUS_I ? 'i' : '');
+    var cls = s === STATUS_H ? (mt ? 't' : 'h') : (s === STATUS_I ? 'i' : (s === 'Alpa' ? 'a' : ''));
     var jkTeks = (S.jk === 'S' || (q && j.jk !== S.jk)) ? '<b>' + (j.jk === 'L' ? 'Pria' : 'Wanita') + '</b> · ' : '';
     var inf = S.info[j.id], sub;
     if ((s === STATUS_H || s === STATUS_I) && inf) sub = jkTeks + esc(inf[0]) + (inf[1] ? ' · ' + esc(inf[1]) : '');
