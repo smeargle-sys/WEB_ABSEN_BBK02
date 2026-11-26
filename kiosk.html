@@ -289,7 +289,7 @@ setInterval(updateTime, 1000);
 
 // ===== API CALL =====
 // e.server = true → server menjawab dengan error (bukan masalah jaringan/timeout)
-function apiCall(fn, args, ms) {
+function apiCallRaw(fn, args, ms) {
   if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/.test(API_URL))
     return Promise.reject(Object.assign(new Error('Link web app belum diatur (config.js).'), { server: true }));
   var ctrl = window.AbortController ? new AbortController() : null;
@@ -311,6 +311,28 @@ function apiCall(fn, args, ms) {
   });
 }
 function call(fn) { return apiCall(fn, Array.prototype.slice.call(arguments, 1), 20000); }
+
+// Token login hanya berlaku 6 jam. Jika server menjawab SESI_HABIS, kiosk langsung kembali ke layar PIN
+// (tidak login ulang otomatis). Antrean scan tetap tersimpan dan terkirim setelah PIN dimasukkan.
+function apiCall(fn, args, ms) {
+  return apiCallRaw(fn, args, ms).catch(e => {
+    if (fn !== 'login' && e.server && /^SESI_HABIS/.test(e.message)) {
+      mintaLoginManual('Sesi kiosk berakhir (berlaku 6 jam). Silakan masukkan PIN kiosk lagi.');
+    }
+    throw e;
+  });
+}
+
+function mintaLoginManual(msg) {
+  localStorage.removeItem('absen_bbk02_kiosk_token');
+  localStorage.removeItem('absen_bbk02_kiosk_pin');
+  S.token = null;
+  clearTimeout(S.timer); clearTimeout(S.syncTimer); clearTimeout(S.kirimTimer);
+  stopCamera();
+  ['main', 'vTerkunci', 'hdr', 'ft', 'vHasil', 'vProses', 'vLoading'].forEach(id => show($(id), false));
+  show($('vLogin'), true);
+  $('loginErr').textContent = msg;
+}
 
 // ===== ANTREAN KIRIM (disimpan di localStorage, aman walau halaman di-refresh) =====
 function muatLS(k) {
@@ -462,9 +484,9 @@ function doLogin() {
     S.token = res.token;
     S.petugas = res.petugas;
     S.verServer = res.versiServer;
-    localStorage.setItem('absen_bbk02_kiosk_token', S.token);
-    localStorage.setItem('absen_bbk02_kiosk_pin', pin);
+    localStorage.setItem('absen_bbk02_kiosk_token', S.token);   // PIN TIDAK disimpan di perangkat
     $('pinInput').value = '';
+    $('loginErr').textContent = '';
     show($('vLogin'), false);
     start();
   }).catch(e => {
@@ -522,7 +544,14 @@ function loadInfo() {
     }
   }).catch(e => {
     console.error('Load info error:', e);
-    setTimeout(loadInfo, 5000);
+    if (!S.token) return;   // sudah diminta login manual
+    // Jangan biarkan layar kosong: tampilkan status koneksi sambil mencoba lagi
+    if ($('main').classList.contains('hide') && $('vTerkunci').classList.contains('hide')) {
+      show($('vTerkunci'), true);
+      $('terkunciMsg').textContent = 'Menghubungkan ke server… (' + e.message + ')';
+    }
+    clearTimeout(S.timer);
+    S.timer = setTimeout(loadInfo, 5000);
   });
 }
 
@@ -816,11 +845,10 @@ $('pinInput').addEventListener('keypress', e => {
 // ===== STARTUP =====
 function init() {
   show($("vLoading"), true);  // Show loading indicator
+  localStorage.removeItem('absen_bbk02_kiosk_pin');   // bersihkan PIN yang tersimpan oleh versi lama
   var token = localStorage.getItem('absen_bbk02_kiosk_token');
-  var pin = localStorage.getItem('absen_bbk02_kiosk_pin');
-  if (token && pin) {
+  if (token) {
     S.token = token;
-    $('pinInput').value = pin;
     show($('vLogin'), false);
     start();
   } else {
