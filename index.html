@@ -444,6 +444,7 @@
         <a class="btn2" id="kartuPrevUnduh" download><span data-ic="download" class="ic-s"></span>Unduh</a>
         <button class="btn2" id="kartuPrevTutup">Tutup</button>
       </div>
+      <p class="muted" id="kartuPrevDiag" style="margin:8px 0 0;font-size:11px;word-break:break-word"></p>
     </div>
   </div>
 </main>
@@ -1335,7 +1336,7 @@ function bagikanKartu(id) {
   if (bisaBagikanFile(file)) {
     navigator.share({ files: [file], title: S.kartuShare.judul, text: teks }).catch(function (e) {
       if (e && e.name === 'AbortError') return;   // pengguna membatalkan
-      tampilGambarKartu(e && e.name);
+      tampilGambarKartu(e ? e.name + (e.message ? ': ' + e.message : '') : '');
     });
     return;
   }
@@ -1346,6 +1347,16 @@ function bisaBagikanFile(file) {
   try { return navigator.canShare({ files: [file] }); } catch (e) { return false; }
 }
 function dalamIframe() { try { return window.self !== window.top; } catch (e) { return true; } }
+function infoBrowser() {
+  var ua = navigator.userAgent || '', m;
+  if (/; wv\)/.test(ua)) return 'WebView (browser dalam aplikasi)';
+  if ((m = ua.match(/SamsungBrowser\/([\d.]+)/))) return 'Samsung Internet ' + m[1];
+  if ((m = ua.match(/(?:HeyTapBrowser|OppoBrowser|MiuiBrowser|HuaweiBrowser|EdgA|OPR|Firefox)\/([\d.]+)/))) return m[0];
+  if ((m = ua.match(/CriOS\/([\d.]+)/))) return 'Chrome iOS ' + m[1];
+  if ((m = ua.match(/Chrome\/([\d.]+)/))) return 'Chrome ' + m[1];
+  if (/Safari\//.test(ua)) return 'Safari';
+  return ua.slice(0, 40);
+}
 function tampilGambarKartu(alasan) {
   var k = S.kartuShare;
   $('kartuPrevImg').src = k.url;
@@ -1357,13 +1368,17 @@ function tampilGambarKartu(alasan) {
     : 'Perangkat/tampilan ini tidak mengizinkan bagikan langsung' +
       (dalamIframe() ? ' (aplikasi dibuka dari link <b>script.google.com</b>; buka lewat link <b>GitHub Pages</b> agar tombol Bagikan langsung membuka menu bagikan Android)' : '') +
       '. Tap <b>Unduh</b>, atau tekan lama gambar → Simpan/Bagikan.';
+  // Info teknis kecil (untuk diagnosa bila menu bagikan tidak muncul)
+  var fileOk = false; try { fileOk = !!(navigator.canShare && k.file && navigator.canShare({ files: [k.file] })); } catch (e) { fileOk = false; }
+  $('kartuPrevDiag').textContent = 'Info: share=' + (navigator.share ? 'ya' : 'tidak') + ' · file=' + (fileOk ? 'ya' : 'tidak') +
+    ' · iframe=' + (dalamIframe() ? 'ya' : 'tidak') + ' · alasan=' + (alasan || '-') + ' · ' + infoBrowser();
   show($('kartuPrev'), true);
 }
 function bagikanLagi() {
   var k = S.kartuShare; if (!k) return;
   navigator.share({ files: [k.file], title: k.judul, text: k.teks }).catch(function (e) {
     if (e && e.name === 'AbortError') return;
-    toast('Menu bagikan tidak bisa dibuka (' + (e && e.name || 'error') + '). Gunakan Unduh.', 'warn', 4000);
+    toast('Menu bagikan tidak bisa dibuka (' + (e && e.name || 'error') + (e && e.message ? ': ' + e.message : '') + '). Gunakan Unduh.', 'warn', 6000);
   });
 }
 
