@@ -50,7 +50,7 @@ const HDR = {
   // template hanya dipakai jika tab Jamaah belum ada (format mengikuti data sensus)
   MASTER: ['ID Jamaah', 'ID Keluarga', 'Hubungan Keluarga', 'Nama Lengkap', 'Nama Absen', 'Jenis Kelamin', 'Tahun Lahir',
     'Status Nikah', 'Status Keaktifan', 'Flag Absen', 'Status Keberadaan', 'Catatan'],
-  PETUGAS: ['Nama', 'PIN', 'Bagian', 'Peran', 'Aktif'],
+  PETUGAS: ['Nama', 'PIN', 'Bagian', 'Peran', 'Aktif', 'Username'],
   SESI: ['ID_Sesi', 'Tanggal', 'Hari', 'Keterangan', 'Status', 'Dibuka Oleh', 'Waktu Dibuka', 'Waktu Ditutup'],
   ABSEN: ['Key', 'ID_Sesi', 'Tanggal', 'ID_Jamaah', 'Nama', 'JK', 'Status', 'Metode', 'Petugas', 'Waktu', 'Terlambat', 'Menit Terlambat'],
 };
@@ -310,21 +310,47 @@ function cekKolomMaster_(sh) {
   return m;
 }
 
-function getPetugasByPin_(pin) {
+/**
+ * Cari petugas aktif berdasarkan USERNAME + PIN (tab Petugas, kolom F = Username, tidak membedakan huruf besar/kecil).
+ * Username kosong = mode PIN saja, hanya untuk:
+ *   - baris yang kolom Username-nya masih kosong (masa transisi), atau
+ *   - akun berperan Kiosk (tablet kiosk tetap login dengan PIN saja).
+ */
+function getPetugas_(username, pin) {
   pin = String(pin == null ? '' : pin).trim();
+  username = String(username == null ? '' : username).trim().toLowerCase();
   if (!pin) throw new Error('PIN wajib diisi');
   const sh = sheet_(SH.PETUGAS);
   const lr = sh.getLastRow();
   if (lr < 2) throw new Error('Belum ada petugas terdaftar');
-  const rows = memo_('petugas', () => sh.getRange(2, 1, lr - 1, 5).getDisplayValues());
-  const cocok = rows.filter(r => String(r[1]).trim() === pin && !/^(tidak|no|n|false)$/i.test(String(r[4]).trim()));
-  if (!cocok.length) throw new Error('PIN salah atau petugas tidak aktif');
-  if (cocok.length > 1) {
-    throw new Error('PIN ini dipakai ' + cocok.length + ' petugas (' + cocok.map(r => r[0]).join(', ') +
-      '). Admin: buat PIN berbeda untuk tiap petugas di tab Petugas.');
+  const rows = memo_('petugas', () => {
+    const nCol = Math.min(6, sh.getMaxColumns());
+    const v = sh.getRange(1, 1, lr, nCol).getDisplayValues();
+    if (nCol >= 6 && !String(v[0][5] || '').trim()) sh.getRange(1, 6).setValue('Username');   // judul kolom untuk instalasi lama
+    return v.slice(1).map(r => r.concat(['', '', '', '', '', '']).slice(0, 6));
+  });
+  const aktif = r => !/^(tidak|no|n|false)$/i.test(String(r[4]).trim());
+  const uname = r => String(r[5] || '').trim().toLowerCase();
+  const pinCocok = r => String(r[1]).trim() === pin;
+  let cocok;
+  if (username) {
+    cocok = rows.filter(r => aktif(r) && uname(r) === username && pinCocok(r));
+    if (!cocok.length) throw new Error('Username atau PIN salah, atau petugas tidak aktif');
+    if (cocok.length > 1) throw new Error('Username "' + username + '" dipakai ' + cocok.length + ' baris dengan PIN sama. Admin: rapikan tab Petugas.');
+  } else {
+    cocok = rows.filter(r => aktif(r) && pinCocok(r) && (!uname(r) || /kiosk/i.test(r[3])));
+    if (!cocok.length) {
+      if (rows.some(r => aktif(r) && pinCocok(r) && uname(r))) throw new Error('Akun ini memakai username. Isi username dan PIN.');
+      throw new Error('PIN salah atau petugas tidak aktif');
+    }
+    if (cocok.length > 1) {
+      throw new Error('PIN ini dipakai ' + cocok.length + ' petugas (' + cocok.map(r => r[0]).join(', ') +
+        '). Admin: beri username tiap petugas di tab Petugas (kolom Username), atau buat PIN berbeda.');
+    }
   }
   const r = cocok[0];
-  return { nama: String(r[0] || 'Petugas').trim(), bagian: normJK_(r[2]) || 'Semua', admin: /admin/i.test(r[3]), kiosk: /kiosk/i.test(r[3]) };
+  return { nama: String(r[0] || 'Petugas').trim(), bagian: normJK_(r[2]) || 'Semua', admin: /admin/i.test(r[3]), kiosk: /kiosk/i.test(r[3]),
+    username: uname(r) };
 }
 
 // ---------------------------------------------------------------------
@@ -349,8 +375,8 @@ function log_(kejadian, ket) {
   } catch (e) { /* abaikan */ }
 }
 
-/** Login dengan PIN + pembatas percobaan. */
-function authPin_(pin) {
+/** Login dengan username (opsional) + PIN + pembatas percobaan. */
+function authPin_(pin, username) {
   const cache = CacheService.getScriptCache();
   const fails = Number(cache.get('pin_fail') || 0);
   if (fails >= PIN_MAKS_GAGAL) {
@@ -358,16 +384,17 @@ function authPin_(pin) {
     throw new Error('Terlalu banyak percobaan PIN salah. Coba lagi 10 menit lagi.');
   }
   try {
-    return getPetugasByPin_(pin);
+    return getPetugas_(username, pin);
   } catch (e) {
     cache.put('pin_fail', String(fails + 1), 600);
-    log_('Login gagal', 'Percobaan ke-' + (fails + 1) + ' dalam 10 menit');
+    const u = String(username || '').trim().slice(0, 40);
+    log_('Login gagal', 'Percobaan ke-' + (fails + 1) + ' dalam 10 menit' + (u ? ' · username "' + u + '"' : ' · tanpa username'));
     throw e;
   }
 }
-function buatToken_(pin) {
+function buatToken_(pin, username) {
   const t = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '').toLowerCase();
-  CacheService.getScriptCache().put('tok_' + t, JSON.stringify({ pin: String(pin).trim() }), TOKEN_TTL);
+  CacheService.getScriptCache().put('tok_' + t, JSON.stringify({ pin: String(pin).trim(), user: String(username || '').trim().toLowerCase() }), TOKEN_TTL);
   return t;
 }
 /** Validasi token di setiap permintaan. Pesan berawalan SESI_HABIS membuat web app kembali ke layar PIN. */
@@ -378,7 +405,8 @@ function auth_(token) {
   const raw = cache.get('tok_' + token);
   if (!raw) throw new Error('SESI_HABIS: sesi login berakhir, silakan masukkan PIN lagi.');
   try {
-    return getPetugasByPin_(JSON.parse(raw).pin);
+    const t = JSON.parse(raw);
+    return getPetugas_(t.user || '', t.pin);   // token lama (tanpa username) = mode PIN saja
   } catch (e) {
     cache.remove('tok_' + token);
     throw new Error('SESI_HABIS: akses petugas berubah (PIN diganti / dinonaktifkan). Silakan login ulang.');
@@ -820,10 +848,11 @@ function rekapPesan_(s) {
 // API untuk web app (dipanggil via google.script.run.apiCall atau doPost)
 // ---------------------------------------------------------------------
 const API = {
-  login: function (pin) {
-    const p = authPin_(pin);
-    log_('Login', p.nama + (p.admin ? ' (Admin)' : '') + ' · bagian ' + p.bagian);
-    return { token: buatToken_(pin), petugas: p, namaKelompok: getSettings_().namaKelompok, versiServer: VERSI_SERVER,
+  /** login(pin, username) — username opsional (kosong = mode PIN saja: akun tanpa username & akun Kiosk). */
+  login: function (pin, username) {
+    const p = authPin_(pin, username);
+    log_('Login', p.nama + (p.admin ? ' (Admin)' : '') + (p.username ? ' · @' + p.username : ' · tanpa username') + ' · bagian ' + p.bagian);
+    return { token: buatToken_(pin, username), petugas: p, namaKelompok: getSettings_().namaKelompok, versiServer: VERSI_SERVER,
       paket: paketAwal_(p) };
   },
   /** Ringan: hanya daftar sesi (dipakai saat menunggu sesi dibuka). */
@@ -1503,10 +1532,10 @@ function setupAwal() {
   sh = ensureSheet_(SH.PETUGAS, HDR.PETUGAS);
   sh.getRange('B:B').setNumberFormat('@');
   if (sh.getLastRow() < 2) {
-    sh.getRange(2, 1, 3, 5).setValues([
-      ['Admin', '123456', 'Semua', 'Admin', 'Ya'],
-      ['Petugas Pria', '111111', 'L', 'Petugas', 'Ya'],
-      ['Petugas Wanita', '222222', 'P', 'Petugas', 'Ya'],
+    sh.getRange(2, 1, 3, 6).setValues([
+      ['Admin', '123456', 'Semua', 'Admin', 'Ya', 'admin'],
+      ['Petugas Pria', '111111', 'L', 'Petugas', 'Ya', 'petugas_pria'],
+      ['Petugas Wanita', '222222', 'P', 'Petugas', 'Ya', 'petugas_wanita'],
     ]);
   }
   const nP = Math.max(sh.getMaxRows() - 1, 1);

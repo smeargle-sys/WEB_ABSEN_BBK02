@@ -307,11 +307,14 @@
   <section id="vLogin">
     <div class="card" style="margin-top:8vh;padding:18px">
       <h3 style="margin:2px 0 4px">Masuk Petugas</h3>
-      <p class="muted" style="margin:0 0 14px">Masukkan PIN dari Admin untuk mulai mencatat kehadiran.</p>
+      <p class="muted" style="margin:0 0 14px">Masukkan username &amp; PIN dari Admin untuk mulai mencatat kehadiran.</p>
+      <label class="l" for="user">Username</label>
+      <input type="text" id="user" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Username dari Admin" style="margin-bottom:10px">
       <label class="l" for="pin">PIN</label>
       <input type="password" id="pin" inputmode="numeric" autocomplete="off" placeholder="Masukkan PIN">
       <button class="btn btn-w" id="btnLogin" style="margin-top:12px;padding:12px">Masuk</button>
       <p class="muted" id="loginMsg" style="color:var(--err)"></p>
+      <p class="muted" style="margin:6px 0 0;font-size:12px">Belum diberi username oleh Admin? Kosongkan kolom Username dan masuk dengan PIN saja.</p>
     </div>
   </section>
 
@@ -631,12 +634,15 @@ function denganProgres(teks, promiseFn) {
 
 /* ---------- login ---------- */
 /* PIN hanya dikirim sekali saat login. HP menyimpan TOKEN sesi (berlaku 6 jam), bukan PIN. */
+var USER_KEY = 'absen_bbk02_user';   // hanya USERNAME yang diingat di perangkat (PIN tidak pernah disimpan)
 function doLogin(pin) {
+  var user = ($('user').value || '').trim();
   $('btnLogin').disabled = true; $('loginMsg').textContent = '';
-  denganProgres('Memeriksa PIN & menyiapkan sesi...', function () { return call('login', pin); }).then(function (r) {
+  denganProgres('Memeriksa username & PIN...', function () { return call('login', pin, user); }).then(function (r) {
     if (!r.token || !r.paket) throw new Error('Server masih versi lama. Admin: Deploy → Kelola deployment → Edit → Versi baru.');
     S.token = r.token; S.petugas = r.petugas; S.kelompok = r.namaKelompok; S.versiServer = r.versiServer || 0;
     simpanLogin(r.token);
+    try { if (user) localStorage.setItem(USER_KEY, user); else localStorage.removeItem(USER_KEY); } catch (x) {}
     $('pin').value = ''; $('loginMsg').textContent = '';
     afterLogin(r.paket);
   }).catch(function (e) {
@@ -1670,6 +1676,8 @@ window.addEventListener('resize', function () {
 /* ---------- event ---------- */
 $('btnLogin').onclick = function () { var p = $('pin').value.trim(); if (p) doLogin(p); };
 $('pin').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('btnLogin').click(); });
+$('user').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); $('pin').focus(); } });
+try { var uSimpan = localStorage.getItem(USER_KEY); if (uSimpan) $('user').value = uSimpan; } catch (x) {}
 $('btnLogout').onclick = function (e) { e.preventDefault(); logout(); };
 $('btnBukaSesi').onclick = bukaSesiHariIni;
 $('ketSesi').addEventListener('change', renderKet);
